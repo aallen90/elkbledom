@@ -212,6 +212,25 @@ Sound-reactive effects with sensitivity control (on supported devices).
 
 External control (i.e. IR remote) state changes do NOT reflect in Home Assistant and are NOT updated.
 
+## Hardware Limitations
+
+These are inherent limitations of the ELK-BLEDOM hardware that cannot be fixed in software:
+
+1. **Single Bluetooth connection** - Only one device can be connected to the LED strip at a time. If you're using the mobile app or `gatttool`, disconnect first.
+   ```
+   BleakOutOfConnectionSlotsError: Failed to connect after 9 attempt(s)
+   ```
+
+2. **IR interference** - Some LED strips may respond to TV remotes or other IR devices, causing unexpected state changes.
+
+3. **No state feedback** - The device doesn't report its current state, so Home Assistant assumes state based on commands sent.
+
+## TODO / Future Improvements
+
+- [ ] **Investigate state read command** - The device may support a status query command (e.g., `0xEF 0x01 0x77`). If found, this would enable state sync after reconnect.
+- [x] **Refactor model database** - Clean up device variant handling with a proper ModelDB structure instead of arrays. ✅ Completed - now uses `ModelConfig` dataclass with `MODEL_DB` dictionary.
+- [ ] **Add `assumed_state` property** - Indicate to HA that state may be uncertain, showing toggle UI instead of on/off.
+
 ## Enable debug mode
 
 Use debug log to see more information of posible errors and post it in your issue description
@@ -259,45 +278,17 @@ tap_action:
     brightness: 255
 ```
 
-## Known issues
-
-1.  Only one device can be connected over bluetooth to the led strip. If you are using the mobile app to connect to strip, or used `gatttool` to query the device, you need to disconnect from the LED strip first.
-    ```
-    BleakOutOfConnectionSlotsError: Failed to connect after 9 attempt(s): No backend with an available connection slot that can reach address
-    ```    
-2.  Live state polling doesn't work.
-3.  It is possible you have interference between the LED strip and the TV remote control or another devices. When you press some buttons on the remote control, the status of the lights could be changes. 
-4.  I am waiting for read status value:
-
-            ```
-
-            future = asyncio.get_event_loop().create_future()
-            await self._device.start_notify(self._read_uuid, create_status_callback(future))
-            # PROBLEMS WITH STATUS VALUE, I HAVE NOT VALUE TO WRITE AND GET STATUS
-            await self._write(bytearray([0xEF, 0x01, 0x77]))
-            await asyncio.wait_for(future, 5.0)
-            await self._device.stop_notify(self._read_uuid)
-
-            ```
-
 ## Credits
 
-This integration will not be possible without the awesome work of this github repositories:
+This integration would not be possible without the awesome work of these repositories:
 
-https://www.home-assistant.io/integrations/led_ble/
-
-https://github.com/sysofwan/ha-triones
-
-https://github.com/TheSylex/ELK-BLEDOM-bluetooth-led-strip-controller/
-
-https://github.com/FreekBes/bledom_controller/
-
-https://github.com/FergusInLondon/ELK-BLEDOM/
-
-https://github.com/arduino12/ble_rgb_led_strip_controller
-
-https://github.com/lilgallon/DynamicLedStrips
-
-https://github.com/kquinsland/JACKYLED-BLE-RGB-LED-Strip-controller
+- [Home Assistant LED BLE](https://www.home-assistant.io/integrations/led_ble/)
+- [sysofwan/ha-triones](https://github.com/sysofwan/ha-triones)
+- [TheSylex/ELK-BLEDOM-bluetooth-led-strip-controller](https://github.com/TheSylex/ELK-BLEDOM-bluetooth-led-strip-controller/)
+- [FreekBes/bledom_controller](https://github.com/FreekBes/bledom_controller/)
+- [FergusInLondon/ELK-BLEDOM](https://github.com/FergusInLondon/ELK-BLEDOM/)
+- [arduino12/ble_rgb_led_strip_controller](https://github.com/arduino12/ble_rgb_led_strip_controller)
+- [lilgallon/DynamicLedStrips](https://github.com/lilgallon/DynamicLedStrips)
+- [kquinsland/JACKYLED-BLE-RGB-LED-Strip-controller](https://github.com/kquinsland/JACKYLED-BLE-RGB-LED-Strip-controller)
 
 https://linuxthings.co.uk/blog/control-an-elk-bledom-bluetooth-led-strip

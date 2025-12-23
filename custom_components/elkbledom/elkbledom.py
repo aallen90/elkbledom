@@ -1,8 +1,14 @@
 import asyncio
+import json
+import logging
+import traceback
+from dataclasses import dataclass
 from datetime import datetime
-from homeassistant.exceptions import ConfigEntryNotReady
+from pathlib import Path
+from typing import Any, Callable, Optional, Tuple, TypeVar, cast
 
 from bleak.backends.device import BLEDevice
+from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.service import BleakGATTServiceCollection
 from bleak.exc import BleakDBusError
 from bleak_retry_connector import BLEAK_RETRY_EXCEPTIONS as BLEAK_EXCEPTIONS
@@ -11,112 +17,147 @@ from bleak_retry_connector import (
     BleakNotFoundError,
     establish_connection,
 )
-from homeassistant.components.bluetooth import async_discovered_service_info, async_ble_device_from_address
-from home_assistant_bluetooth import BluetoothServiceInfo
-from typing import Any, TypeVar, cast, Tuple
-from collections.abc import Callable
-import traceback
-import asyncio
-import logging
-import json
-from pathlib import Path
+from homeassistant.components.bluetooth import (
+    async_ble_device_from_address,
+    async_discovered_service_info,
+)
+from homeassistant.exceptions import ConfigEntryNotReady
 
 LOGGER = logging.getLogger(__name__)
 
-#gatttool -i hci0 -b be:59:7a:00:08:d5 --char-write-req -a 0x0009 -n 7e00040100000000ef POWERON
-# sudo gatttool -b be:59:7a:00:08:d5 --char-write-req -a 0x0009 -n 7e0004f00001ff00ef # POWER ON
-# sudo gatttool -b be:59:7a:00:08:d5 --char-write-req -a 0x0009 -n 7e000503ff000000ef # RED
-# sudo gatttool -b be:59:7a:00:08:d5 --char-write-req -a 0x0009 -n 7e0005030000ff00ef # BLUE
-# sudo gatttool -b be:59:7a:00:08:d5 --char-write-req -a 0x0009 -n 7e00050300ff0000ef # GREEN
-# sudo gatttool -b be:59:7a:00:08:d5 --char-write-req -a 0x0009 -n 7e0004000000ff00ef # POWER OFF
+
+@dataclass
+class ModelConfig:
+    """Configuration for a specific LED strip model."""
+    name: str
+    write_uuid: str
+    read_uuid: str
+    turn_on_cmd: list[int]
+    turn_off_cmd: list[int]
+    white_cmd: list[int]
+    effect_speed_cmd: list[int]
+    effect_cmd: list[int]
+    color_temp_cmd: list[int]
+    min_color_temp_k: int = 1800
+    max_color_temp_k: int = 7000
+    # Default RGB gains for better white balance (1.0 = no adjustment)
+    default_rgb_gains: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    # Alternative commands for hardware variants (e.g., ELK-BLEDDM has 0x00 vs 0x04)
+    alt_turn_on_cmd: Optional[list[int]] = None
+    alt_turn_off_cmd: Optional[list[int]] = None
 
 
-#TODO CHANGES ARRAYS TO DICT OR MODELDB OBJECT WITH ALL MODEL INFORMATION
-NAME_ARRAY = ["ELK-BLEDDM",
-              "ELK-BLE",
-              "LEDBLE",
-              "MELK-OG10",
-              "MELK",
-              "ELK-BULB2",
-              "ELK-BULB",
-              "ELK-LAMPL"]
-WRITE_CHARACTERISTIC_UUIDS = ["0000fff3-0000-1000-8000-00805f9b34fb",
-                              "0000fff3-0000-1000-8000-00805f9b34fb",
-                              "0000ffe1-0000-1000-8000-00805f9b34fb",
-                              "0000fff3-0000-1000-8000-00805f9b34fb",
-                              "0000fff3-0000-1000-8000-00805f9b34fb",
-                              "0000fff3-0000-1000-8000-00805f9b34fb",
-                              "0000fff3-0000-1000-8000-00805f9b34fb",
-                              "0000fff3-0000-1000-8000-00805f9b34fb"]
-READ_CHARACTERISTIC_UUIDS  = ["0000fff4-0000-1000-8000-00805f9b34fb",
-                              "0000fff4-0000-1000-8000-00805f9b34fb",
-                              "0000ffe2-0000-1000-8000-00805f9b34fb",
-                              "0000fff4-0000-1000-8000-00805f9b34fb",
-                              "0000fff4-0000-1000-8000-00805f9b34fb",
-                              "0000fff4-0000-1000-8000-00805f9b34fb",
-                              "0000fff4-0000-1000-8000-00805f9b34fb",
-                              "0000fff4-0000-1000-8000-00805f9b34fb"]
+# Model database - each model has its own configuration
+MODEL_DB: dict[str, ModelConfig] = {
+    "ELK-BLEDDM": ModelConfig(
+        name="ELK-BLEDDM",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x04, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
+        default_rgb_gains=(1.00, 0.88, 0.38),
+        # Some ELK-BLEDDM units use 0x00 instead of 0x04 as the second byte
+        alt_turn_on_cmd=[0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
+        alt_turn_off_cmd=[0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+    ),
+    "ELK-BLE": ModelConfig(
+        name="ELK-BLE",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
+    ),
+    "LEDBLE": ModelConfig(
+        name="LEDBLE",
+        write_uuid="0000ffe1-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000ffe2-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
+    ),
+    "MELK-OG10": ModelConfig(
+        name="MELK-OG10",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x07, 0x04, 0xff, 0x00, 0x01, 0x02, 0x01, 0xef],
+        turn_off_cmd=[0x7e, 0x07, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0xef],
+        white_cmd=[0x7e, 0x07, 0x05, 0x01, 0xbb, 0xff, 0x02, 0x01],
+        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x06, 0xff, 0xff, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
+    ),
+    "MELK": ModelConfig(
+        name="MELK",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x06, 0xff, 0xff, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
+    ),
+    "ELK-BULB2": ModelConfig(
+        name="ELK-BULB2",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
+    ),
+    "ELK-BULB": ModelConfig(
+        name="ELK-BULB",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
+    ),
+    "ELK-LAMPL": ModelConfig(
+        name="ELK-LAMPL",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
+    ),
+}
 
-# ELK-BLEDDM has two hardware variants with different command bytes
-BLEDDM_ALT_ON = [0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef]
-BLEDDM_ALT_OFF = [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef]
 
-TURN_ON_CMD = [[0x7e, 0x04, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
-               [0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
-               [0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
-               [0x7e, 0x07, 0x04, 0xff, 0x00, 0x01, 0x02, 0x01, 0xef],
-               [0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
-               [0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
-               [0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
-               [0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef]]
-TURN_OFF_CMD = [[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-                [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-                [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-                [0x7e, 0x07, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0xef],
-                [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-                [0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-                [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef]]
-
-WHITE_CMD = [[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x07, 0x05, 0x01, 0xbb, 0xff, 0x02, 0x01],
-                [0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef]]
-
-EFFECT_SPEED_CMD = [[0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-                [0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-                [0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x02, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef]]
-
-EFFECT_CMD = [[0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x05, 0x03, 0xbb, 0x06, 0xff, 0xff, 0x00, 0xef],
-                [0x7e, 0x05, 0x03, 0xbb, 0x06, 0xff, 0xff, 0x00, 0xef],
-                [0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x03, 0xbb, 0x03, 0x00, 0x00, 0x00, 0xef]]
-
-COLOR_TEMP_CMD = [[0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
-                [0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-                [0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-                [0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
-                [0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef]]
+def get_supported_name_prefixes() -> list[str]:
+    """Get list of supported device name prefixes."""
+    return list(MODEL_DB.keys())
 
 
-MIN_COLOR_TEMPS_K = [1800,1800,1800,1800,1800,1800,1800,1800]
-MAX_COLOR_TEMPS_K = [7000,7000,7000,7000,7000,7000,7000,7000]
+def get_all_characteristic_uuids() -> tuple[set[str], set[str]]:
+    """Get unique read and write characteristic UUIDs from all models.
+    
+    Returns:
+        Tuple of (read_uuids, write_uuids) as sets.
+    """
+    read_uuids = {m.read_uuid for m in MODEL_DB.values()}
+    write_uuids = {m.write_uuid for m in MODEL_DB.values()}
+    return read_uuids, write_uuids
 
 # Query/Status commands to try for different LED strip models
 # Format: [command_bytes, description]
@@ -197,10 +238,10 @@ QUERY_COMMANDS = [
 ]
 
 DEFAULT_ATTEMPTS = 3
-#DISCONNECT_DELAY = 120
 BLEAK_BACKOFF_TIME = 0.25
 RETRY_BACKOFF_EXCEPTIONS = (BleakDBusError,)
 WrapFuncType = TypeVar("WrapFuncType", bound=Callable[..., Any])
+
 
 def retry_bluetooth_connection_error(func: WrapFuncType) -> WrapFuncType:
     """Define a wrapper to retry on bleak error.
@@ -212,7 +253,6 @@ def retry_bluetooth_connection_error(func: WrapFuncType) -> WrapFuncType:
     async def _async_wrap_retry_bluetooth_connection_error(
         self: "BLEDOMInstance", *args: Any, **kwargs: Any
     ) -> Any:
-        # LOGGER.debug("%s: Starting retry loop", self.name)
         attempts = DEFAULT_ATTEMPTS
         max_attempts = attempts - 1
 
@@ -242,7 +282,7 @@ class CharacteristicMissingError(Exception):
 class DeviceData():
     def __init__(self, hass, discovery_info):
         self._discovery = discovery_info
-        self._supported = any(self._discovery.name.lower().startswith(option.lower()) for option in NAME_ARRAY)
+        self._supported = any(self._discovery.name.lower().startswith(prefix.lower()) for prefix in MODEL_DB.keys())
         self._address = self._discovery.address
         self._name = self._discovery.name
         self._rssi = self._discovery.rssi
@@ -273,16 +313,11 @@ class DeviceData():
         return self._bledevice
     
     def update_device(self):
-        #TODO for discovery_info in async_last_service_info(self._hass, self._address):
+        """Update device info from BLE discovery."""
         for discovery_info in async_discovered_service_info(self._hass):
             if discovery_info.address == self._address:
                 self._rssi = discovery_info.rssi
-                ##TODO SOMETHING WITH DEVICE discovery_info
-        return
 
-    def _start_update(self, service_info: BluetoothServiceInfo) -> None:
-        """Update from BLE advertisement data."""
-        LOGGER.debug("Parsing Govee BLE advertisement data: %s", service_info)
 
 class BLEDOMInstance:
     def __init__(self, address, reset: bool, delay: int, hass) -> None:
@@ -346,31 +381,46 @@ class BLEDOMInstance:
         
         if not self._device:
             raise ConfigEntryNotReady(f"You need to add bluetooth integration (https://www.home-assistant.io/integrations/bluetooth) or couldn't find a nearby device with address: {address}")
-            
-        # self._adv_data: AdvertisementData | None = None
+
         self._detect_model()
 
-        # Temporary default calibration for ELK-BLEDDM to better match HA color picks.
-        # Config entry options (if set) will override these values in async_setup_entry.
-        if self._model == "ELK-BLEDDM":
-            self.set_rgb_gains(1.00, 0.88, 0.38)
+        # Apply default RGB gains from MODEL_DB if defined
+        model_config = MODEL_DB.get(self._model)
+        if model_config and model_config.default_rgb_gains != (1.0, 1.0, 1.0):
+            r, g, b = model_config.default_rgb_gains
+            self.set_rgb_gains(r, g, b)
         LOGGER.debug('Model information for device %s : ModelNo %s, Turn on cmd %s, Turn off cmd %s, White cmd %s, rssi %s', self._device.name, self._model, self._turn_on_cmd, self._turn_off_cmd, self._white_cmd, self.rssi)
         
     def _detect_model(self):
-        x = 0
-        for name in NAME_ARRAY:
-            if self._device.name.lower().startswith(name.lower()):
-                self._turn_on_cmd = TURN_ON_CMD[x]
-                self._turn_off_cmd = TURN_OFF_CMD[x]
-                self._white_cmd = WHITE_CMD[x]
-                self._effect_speed_cmd = EFFECT_SPEED_CMD[x]
-                self._effect_cmd = EFFECT_CMD[x]
-                self._color_temp_cmd = COLOR_TEMP_CMD[x]
-                self._max_color_temp_kelvin = MAX_COLOR_TEMPS_K[x]
-                self._min_color_temp_kelvin = MIN_COLOR_TEMPS_K[x]
+        """Detect the LED model from the device name and load its configuration."""
+        device_name_lower = self._device.name.lower()
+        
+        for name, config in MODEL_DB.items():
+            if device_name_lower.startswith(name.lower()):
                 self._model = name
-                return x
-            x = x + 1
+                self._turn_on_cmd = list(config.turn_on_cmd)
+                self._turn_off_cmd = list(config.turn_off_cmd)
+                self._white_cmd = list(config.white_cmd)
+                self._effect_speed_cmd = list(config.effect_speed_cmd)
+                self._effect_cmd = list(config.effect_cmd)
+                self._color_temp_cmd = list(config.color_temp_cmd)
+                self._max_color_temp_kelvin = config.max_color_temp_k
+                self._min_color_temp_kelvin = config.min_color_temp_k
+                return name
+        
+        # Fallback to first model if no match (shouldn't happen if discovery is working)
+        LOGGER.warning("Unknown device model '%s', using default configuration", self._device.name)
+        first_config = next(iter(MODEL_DB.values()))
+        self._model = first_config.name
+        self._turn_on_cmd = list(first_config.turn_on_cmd)
+        self._turn_off_cmd = list(first_config.turn_off_cmd)
+        self._white_cmd = list(first_config.white_cmd)
+        self._effect_speed_cmd = list(first_config.effect_speed_cmd)
+        self._effect_cmd = list(first_config.effect_cmd)
+        self._color_temp_cmd = list(first_config.color_temp_cmd)
+        self._max_color_temp_kelvin = first_config.max_color_temp_k
+        self._min_color_temp_kelvin = first_config.min_color_temp_k
+        return None
 
     def set_rgb_gains(self, r: float, g: float, b: float) -> None:
         """Set per-channel RGB gains.
@@ -653,8 +703,9 @@ class BLEDOMInstance:
             await asyncio.sleep(0.3)
             if not self._notification_received:
                 LOGGER.debug("%s: Primary cmd no response, trying alternate", self.name)
-                self._turn_on_cmd = BLEDDM_ALT_ON
-                self._turn_off_cmd = BLEDDM_ALT_OFF
+                bleddm_config = MODEL_DB["ELK-BLEDDM"]
+                self._turn_on_cmd = list(bleddm_config.alt_turn_on_cmd)
+                self._turn_off_cmd = list(bleddm_config.alt_turn_off_cmd)
                 await self._write(self._turn_on_cmd)
         else:
             await self._write(self._turn_on_cmd)
@@ -803,38 +854,16 @@ class BLEDOMInstance:
         try:
             await self._ensure_connected()
 
-            # Query device state using auto-detected command
-            # if self._read_uuid and self._client and self._client.is_connected:
-            #     try:
-            #         await self.query_state()
-            #     except Exception as e:
-            #         LOGGER.debug("%s: Could not query state: %s", self.name, e)
-
-            # PROBLEMS WITH STATUS VALUE, I HAVE NOT VALUE TO WRITE AND GET STATUS
-            if(self._is_on is None):
+            # Initialize state if not yet known (device doesn't report state)
+            if self._is_on is None:
                 self._is_on = False
                 self._rgb_color = (0, 0, 0)
                 self._color_temp_kelvin = 5000
                 self._brightness = 255
 
             self._device_data.update_device()
-            #future = asyncio.get_event_loop().create_future()
-            #await self._device.start_notify(self._read_uuid, create_status_callback(future))
-            #await self._write([0x7e, 0x00, 0x01, 0xfa, 0x00, 0x00, 0x00, 0x00, 0xef])
-            #await self._write([0x7e, 0x00, 0x10])
-            #await self._write([0xef, 0x01, 0x77])
-            #await self._write([0x10])
-            #await self._write([0x25, 0x00])
-            #await self._write([0x25, 0x02])
-            #await asyncio.wait_for(future, 5.0)
-            #await self._device.stop_notify(self._read_uuid)
-            #res = future.result()
-            #self._is_on = True #if res[2] == 0x23 else False if res[2] == 0x24 else None
-            # self._rgb_color = (res[6], res[7], res[8])
-            # self._brightness = res[9] if res[9] > 0 else None
-            # LOGGER.debug(''.join(format(x, ' 03x') for x in res))
             
-        except (Exception) as error:
+        except Exception as error:
             self._is_on = False
             LOGGER.error("Error getting status: %s", error)
             track = traceback.format_exc()
@@ -896,7 +925,6 @@ class BLEDOMInstance:
             self._client = client
             self._reset_disconnect_timer()
 
-            #login commands
             await self._login_command()
 
             # Enable notifications (simple method, no manual CCCD)
@@ -943,7 +971,7 @@ class BLEDOMInstance:
             track = traceback.format_exc()
             LOGGER.debug(track)
 
-    def _notification_handler(self, _sender: int, data: bytearray) -> None:
+    def _notification_handler(self, _sender: BleakGATTCharacteristic, data: bytearray) -> None:
         """Handle notification responses."""
         self._notification_received = True  # Mark that we got a response
         LOGGER.info("%s: ✓ Notification received (%d bytes): %s", self.name, len(data), ' '.join(f'{x:02x}' for x in data))
@@ -991,35 +1019,40 @@ class BLEDOMInstance:
             for char in service.characteristics:
                 LOGGER.debug("%s:   Characteristic %s (properties: %s)", self.name, char.uuid, char.properties)
         
+        # Get unique UUIDs from MODEL_DB
+        read_uuids, write_uuids = get_all_characteristic_uuids()
+        
         # Try to find read characteristic
-        for characteristic in READ_CHARACTERISTIC_UUIDS:
+        for characteristic in read_uuids:
             if char := services.get_characteristic(characteristic):
                 self._read_uuid = char.uuid
                 LOGGER.debug("%s: Found read UUID: %s with handle %s", self.name, self._read_uuid, char.handle if hasattr(char, 'handle') else 'Unknown')
                 break
         
         if not self._read_uuid:
-            LOGGER.warning("%s: Could not find any read characteristic from: %s", self.name, READ_CHARACTERISTIC_UUIDS)
+            LOGGER.warning("%s: Could not find any read characteristic from: %s", self.name, read_uuids)
         
         # Try to find write characteristic
-        for characteristic in WRITE_CHARACTERISTIC_UUIDS:
+        for characteristic in write_uuids:
             if char := services.get_characteristic(characteristic):
                 self._write_uuid = char.uuid
                 LOGGER.debug("%s: Found write UUID: %s with handle %s", self.name, self._write_uuid, char.handle if hasattr(char, 'handle') else 'Unknown')
                 if self.name == "ELK-BLEDOM" and char.handle if hasattr(char, 'handle') else 'Unknown' == 0x000d:
                     LOGGER.debug("%s: Adjusting model for ELK-BLEDOM specific handle issue", self.name)
-                    self._turn_on_cmd = TURN_ON_CMD[0]
-                    self._turn_off_cmd = TURN_OFF_CMD[0]
-                    self._white_cmd = WHITE_CMD[0]
-                    self._effect_speed_cmd = EFFECT_SPEED_CMD[0]
-                    self._effect_cmd = EFFECT_CMD[0]
-                    self._color_temp_cmd = COLOR_TEMP_CMD[0]
-                    self._max_color_temp_kelvin = MAX_COLOR_TEMPS_K[0]
-                    self._min_color_temp_kelvin = MIN_COLOR_TEMPS_K[0]
+                    # Use ELK-BLEDDM config for this edge case
+                    config = MODEL_DB["ELK-BLEDDM"]
+                    self._turn_on_cmd = list(config.turn_on_cmd)
+                    self._turn_off_cmd = list(config.turn_off_cmd)
+                    self._white_cmd = list(config.white_cmd)
+                    self._effect_speed_cmd = list(config.effect_speed_cmd)
+                    self._effect_cmd = list(config.effect_cmd)
+                    self._color_temp_cmd = list(config.color_temp_cmd)
+                    self._max_color_temp_kelvin = config.max_color_temp_k
+                    self._min_color_temp_kelvin = config.min_color_temp_k
                 break
         
         if not self._write_uuid:
-            LOGGER.error("%s: Could not find any write characteristic from: %s", self.name, WRITE_CHARACTERISTIC_UUIDS)
+            LOGGER.error("%s: Could not find any write characteristic from: %s", self.name, write_uuids)
         
         return bool(self._read_uuid and self._write_uuid)
 
