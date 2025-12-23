@@ -56,6 +56,11 @@ READ_CHARACTERISTIC_UUIDS  = ["0000fff4-0000-1000-8000-00805f9b34fb",
                               "0000fff4-0000-1000-8000-00805f9b34fb",
                               "0000fff4-0000-1000-8000-00805f9b34fb",
                               "0000fff4-0000-1000-8000-00805f9b34fb"]
+
+# ELK-BLEDDM has two hardware variants with different command bytes
+BLEDDM_ALT_ON = [0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef]
+BLEDDM_ALT_OFF = [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef]
+
 TURN_ON_CMD = [[0x7e, 0x04, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
                [0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
                [0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
@@ -317,6 +322,12 @@ class BLEDOMInstance:
         self._working_query_cmd = None  # Command that works for this device
         self._query_detection_done = False  # Flag to avoid retesting
         self._notification_received = False  # Flag to detect responses
+        self._bleddm_variant_checked = False  # ELK-BLEDDM variant detection done
+
+        # Per-device RGB calibration gains (applied to set_color RGB writes only)
+        self._rgb_gain_r: float = 1.0
+        self._rgb_gain_g: float = 1.0
+        self._rgb_gain_b: float = 1.0
 
         try:
             self._device = async_ble_device_from_address(hass, self._address)
@@ -335,6 +346,11 @@ class BLEDOMInstance:
             
         # self._adv_data: AdvertisementData | None = None
         self._detect_model()
+
+        # Temporary default calibration for ELK-BLEDDM to better match HA color picks.
+        # Config entry options (if set) will override these values in async_setup_entry.
+        if self._model == "ELK-BLEDDM":
+            self.set_rgb_gains(1.00, 0.88, 0.38)
         LOGGER.debug('Model information for device %s : ModelNo %s, Turn on cmd %s, Turn off cmd %s, White cmd %s, rssi %s', self._device.name, self._model, self._turn_on_cmd, self._turn_off_cmd, self._white_cmd, self.rssi)
         
     def _detect_model(self):
@@ -352,6 +368,30 @@ class BLEDOMInstance:
                 self._model = name
                 return x
             x = x + 1
+
+    def set_rgb_gains(self, r: float, g: float, b: float) -> None:
+        """Set per-channel RGB gains.
+
+        These gains are applied when sending RGB colors (set_color), allowing
+        Home Assistant color picks to better match the physical LED output.
+        """
+        try:
+            self._rgb_gain_r = max(0.0, float(r))
+            self._rgb_gain_g = max(0.0, float(g))
+            self._rgb_gain_b = max(0.0, float(b))
+        except (TypeError, ValueError):
+            LOGGER.warning("Invalid RGB gains provided; keeping existing values")
+
+    @staticmethod
+    def _clamp_byte(value: float) -> int:
+        return max(0, min(255, int(round(value))))
+
+    def _apply_rgb_gains(self, r: int, g: int, b: int) -> tuple[int, int, int]:
+        return (
+            self._clamp_byte(r * self._rgb_gain_r),
+            self._clamp_byte(g * self._rgb_gain_g),
+            self._clamp_byte(b * self._rgb_gain_b),
+        )
     
     def get_white_cmd(self, intensity: int):
         white_cmd = self._white_cmd.copy()
@@ -483,7 +523,8 @@ class BLEDOMInstance:
     @retry_bluetooth_connection_error
     async def set_color(self, rgb: Tuple[int, int, int]):
         r, g, b = rgb
-        await self._write([0x7e, 0x00, 0x05, 0x03, int(r), int(g), int(b), 0x00, 0xef])
+        rr, gg, bb = self._apply_rgb_gains(int(r), int(g), int(b))
+        await self._write([0x7e, 0x00, 0x05, 0x03, rr, gg, bb, 0x00, 0xef])
         self._rgb_color = rgb
 
     @retry_bluetooth_connection_error
@@ -547,7 +588,19 @@ class BLEDOMInstance:
 
     @retry_bluetooth_connection_error
     async def turn_on(self):
-        await self._write(self._turn_on_cmd)
+        # ELK-BLEDDM: detect which variant works on first call
+        if self._model == "ELK-BLEDDM" and not self._bleddm_variant_checked:
+            self._bleddm_variant_checked = True
+            self._notification_received = False
+            await self._write(self._turn_on_cmd)
+            await asyncio.sleep(0.3)
+            if not self._notification_received:
+                LOGGER.debug("%s: Primary cmd no response, trying alternate", self.name)
+                self._turn_on_cmd = BLEDDM_ALT_ON
+                self._turn_off_cmd = BLEDDM_ALT_OFF
+                await self._write(self._turn_on_cmd)
+        else:
+            await self._write(self._turn_on_cmd)
         self._is_on = True
 
     @retry_bluetooth_connection_error

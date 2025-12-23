@@ -14,7 +14,7 @@ from homeassistant.components.bluetooth import (
     async_discovered_service_info,
 )
 
-from .const import DOMAIN, CONF_RESET, CONF_DELAY
+from .const import DOMAIN, CONF_RESET, CONF_DELAY, CONF_RGB_GAIN_R, CONF_RGB_GAIN_G, CONF_RGB_GAIN_B
 import logging
 
 LOGGER = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry):
         """Initialize options flow."""
-        #self.config_entry = config_entry
+        self.config_entry = config_entry
 
     async def async_step_init(self, _user_input=None):
         """Manage the options."""
@@ -205,9 +205,24 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_user(self, user_input=None):
         """Handle a flow initialized by the user."""
         errors = {}
-        options = self.config_entry.options or {CONF_RESET: False,CONF_DELAY: 120,}
+        options = self.config_entry.options or {
+            CONF_RESET: False,
+            CONF_DELAY: 120,
+            CONF_RGB_GAIN_R: 1.0,
+            CONF_RGB_GAIN_G: 1.0,
+            CONF_RGB_GAIN_B: 1.0,
+        }
         if user_input is not None:
-            return self.async_create_entry(title="", data={CONF_RESET: user_input[CONF_RESET], CONF_DELAY: user_input[CONF_DELAY]})
+            return self.async_create_entry(
+                title="",
+                data={
+                    CONF_RESET: user_input[CONF_RESET],
+                    CONF_DELAY: user_input[CONF_DELAY],
+                    CONF_RGB_GAIN_R: float(user_input[CONF_RGB_GAIN_R]),
+                    CONF_RGB_GAIN_G: float(user_input[CONF_RGB_GAIN_G]),
+                    CONF_RGB_GAIN_B: float(user_input[CONF_RGB_GAIN_B]),
+                },
+            )
 
         return self.async_show_form(
             step_id="user",
@@ -215,6 +230,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 {
                     vol.Optional(CONF_RESET, default=options.get(CONF_RESET)): bool,
                     vol.Optional(CONF_DELAY, default=options.get(CONF_DELAY)): int,
+                    vol.Optional(
+                        CONF_RGB_GAIN_R,
+                        default=options.get(CONF_RGB_GAIN_R, 1.0),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=3.0)),
+                    vol.Optional(
+                        CONF_RGB_GAIN_G,
+                        default=options.get(CONF_RGB_GAIN_G, 1.0),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=3.0)),
+                    vol.Optional(
+                        CONF_RGB_GAIN_B,
+                        default=options.get(CONF_RGB_GAIN_B, 1.0),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=3.0)),
                 }
             ), errors=errors
         )

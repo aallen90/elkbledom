@@ -5,7 +5,14 @@ from homeassistant.core import HomeAssistant, Event
 from homeassistant.const import CONF_MAC, EVENT_HOMEASSISTANT_STOP
 from homeassistant.const import Platform
 
-from .const import DOMAIN, CONF_RESET, CONF_DELAY
+from .const import (
+    DOMAIN,
+    CONF_RESET,
+    CONF_DELAY,
+    CONF_RGB_GAIN_R,
+    CONF_RGB_GAIN_G,
+    CONF_RGB_GAIN_B,
+)
 from .elkbledom import BLEDOMInstance
 import logging
 
@@ -15,6 +22,8 @@ PLATFORMS: list[Platform] = [
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SWITCH,
+    Platform.BUTTON,
+    Platform.SENSOR,
 ]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -22,9 +31,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     reset = entry.options.get(CONF_RESET, None) or entry.data.get(CONF_RESET, None)
     delay = entry.options.get(CONF_DELAY, None) or entry.data.get(CONF_DELAY, None)
     mac = entry.options.get(CONF_MAC, None) or entry.data.get(CONF_MAC, None)
+    rgb_gain_r = entry.options.get(CONF_RGB_GAIN_R, 1.0)
+    rgb_gain_g = entry.options.get(CONF_RGB_GAIN_G, 1.0)
+    rgb_gain_b = entry.options.get(CONF_RGB_GAIN_B, 1.0)
     LOGGER.debug("Config: Reset: %s, Delay: %s, Mac: %s", reset, delay, mac)
 
-    instance = BLEDOMInstance(entry.data[CONF_MAC], reset, delay, hass)
+    instance = BLEDOMInstance(mac, reset, delay, hass)
+    instance.set_rgb_gains(rgb_gain_r, rgb_gain_g, rgb_gain_b)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = instance
    
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -51,5 +64,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
     instance = hass.data[DOMAIN][entry.entry_id]
+    # Apply options live (avoid full reload for simple tuning).
+    instance.set_rgb_gains(
+        entry.options.get(CONF_RGB_GAIN_R, 1.0),
+        entry.options.get(CONF_RGB_GAIN_G, 1.0),
+        entry.options.get(CONF_RGB_GAIN_B, 1.0),
+    )
     if entry.title != instance.name:
         await hass.config_entries.async_reload(entry.entry_id)

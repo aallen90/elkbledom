@@ -4,6 +4,11 @@ DOMAIN = "elkbledom"
 CONF_RESET = "reset"
 CONF_DELAY = "delay"
 
+# Per-device RGB calibration gains applied to RGB writes.
+CONF_RGB_GAIN_R = "rgb_gain_r"
+CONF_RGB_GAIN_G = "rgb_gain_g"
+CONF_RGB_GAIN_B = "rgb_gain_b"
+
 class EFFECTS (Enum):
     # Light Effects (0x87-0x9C)
     jump_red_green_blue = 0x87
