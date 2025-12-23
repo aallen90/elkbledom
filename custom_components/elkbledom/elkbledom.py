@@ -115,8 +115,8 @@ COLOR_TEMP_CMD = [[0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef],
                 [0x7e, 0x00, 0x05, 0x02, 0xbb, 0xbb, 0x00, 0x00, 0xef]]
 
 
-MIN_COLOR_TEMPS_K = [2700,2700,2700,2700,2700,2700,2700,2700]
-MAX_COLOR_TEMPS_K = [6500,6500,6500,6500,6500,6500,6500,6500]
+MIN_COLOR_TEMPS_K = [1800,1800,1800,1800,1800,1800,1800,1800]
+MAX_COLOR_TEMPS_K = [7000,7000,7000,7000,7000,7000,7000,7000]
 
 # Query/Status commands to try for different LED strip models
 # Format: [command_bytes, description]
@@ -522,20 +522,60 @@ class BLEDOMInstance:
 
     @retry_bluetooth_connection_error
     async def set_color_temp_kelvin(self, value: int, brightness: int):
-        # White colours are represented by colour temperature percentage from 0x0 to 0x64 from warm to cool
-        # Warm (0x0) is only the warm white LED, cool (0x64) is only the white LED and then a mixture between the two
+        """Set color temperature in Kelvin.
+        
+        For devices with native CCT support (dual white LEDs), uses native command.
+        For RGB-only devices, emulates color temperature using RGB values.
+        """
         self._color_temp_kelvin = value
         if value < self._min_color_temp_kelvin:
             value = self._min_color_temp_kelvin
         if value > self._max_color_temp_kelvin:
             value = self._max_color_temp_kelvin
-        color_temp_percent = int(((value - self._min_color_temp_kelvin) * 100) / (self._max_color_temp_kelvin - self._min_color_temp_kelvin))
+        
         # Ensure brightness is not None before using it
         if brightness is None:
             brightness = self._brightness if self._brightness is not None else 255
-        brightness_percent = int(brightness * 100 / 255) 
-        color_temp_cmd = self.get_color_temp_cmd(color_temp_percent, brightness_percent)
-        await self._write(color_temp_cmd)
+        self._brightness = brightness
+        
+        # Try native CCT command first if device has color temp command
+        if self._color_temp_cmd is not None:
+            try:
+                color_temp_percent = int(((value - self._min_color_temp_kelvin) * 100) / 
+                                        (self._max_color_temp_kelvin - self._min_color_temp_kelvin))
+                brightness_percent = int(brightness * 100 / 255)
+                color_temp_cmd = self.get_color_temp_cmd(color_temp_percent, brightness_percent)
+                await self._write(color_temp_cmd)
+                LOGGER.debug("Used native CCT command for %dK", value)
+                return
+            except Exception as e:
+                LOGGER.debug("Native CCT command failed, falling back to RGB emulation: %s", e)
+        
+        # RGB emulation fallback (for RGB-only devices)
+        # Interpolate between warm white (2700K) and cool white (6500K) using RGB
+        # Warm: amber-orange tint, Cool: slight blue tint
+        # Values based on common RGB LED color temperature emulation
+        warm_rgb = (255, 138, 18)   # ~1800K - very warm/orange
+        cool_rgb = (180, 220, 255)  # ~7000K - cool/blue-white
+        
+        # Normalize to 0-1 range
+        k_min = self._min_color_temp_kelvin
+        k_max = self._max_color_temp_kelvin
+        t = (value - k_min) / (k_max - k_min) if k_max > k_min else 1.0
+        
+        # Linear interpolation
+        r = int(warm_rgb[0] + (cool_rgb[0] - warm_rgb[0]) * t)
+        g = int(warm_rgb[1] + (cool_rgb[1] - warm_rgb[1]) * t)
+        b = int(warm_rgb[2] + (cool_rgb[2] - warm_rgb[2]) * t)
+        
+        # Apply brightness scaling
+        scale = brightness / 255.0
+        r = int(r * scale)
+        g = int(g * scale)
+        b = int(b * scale)
+        
+        LOGGER.debug("RGB emulation for %dK: RGB(%d, %d, %d) at brightness %d", value, r, g, b, brightness)
+        await self.set_color((r, g, b))
 
     @retry_bluetooth_connection_error
     async def set_color(self, rgb: Tuple[int, int, int]):

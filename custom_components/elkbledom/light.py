@@ -19,7 +19,6 @@ from homeassistant.components.light import (
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_EFFECT,
     ATTR_RGB_COLOR,
-    ATTR_WHITE,
     ColorMode,
     LightEntity,
     LightEntityFeature,
@@ -45,9 +44,11 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
         super().__init__(coordinator)
         self._instance = bledomInstance
         self._entry_id = entry_id
-        self._attr_supported_color_modes = {ColorMode.RGB, ColorMode.COLOR_TEMP, ColorMode.WHITE}
+        # Note: ColorMode.WHITE cannot be combined with ColorMode.COLOR_TEMP per HA docs
+        # We use COLOR_TEMP for adjustable white temperature (emulated via RGB)
+        self._attr_supported_color_modes = {ColorMode.RGB, ColorMode.COLOR_TEMP}
         self._attr_supported_features = LightEntityFeature.EFFECT
-        self._attr_color_mode = ColorMode.WHITE
+        self._attr_color_mode = ColorMode.COLOR_TEMP
         self._attr_name = name
         self._attr_effect = None
         self._attr_unique_id = self._instance.address
@@ -161,10 +162,10 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
                 except (TypeError, ValueError) as e:
                     LOGGER.warning(f"Invalid color temperature data, skipping: {e}")
             
-            # Restore white mode
-            elif last_state.attributes.get("color_mode") == ColorMode.WHITE:
-                self._attr_color_mode = ColorMode.WHITE
-                LOGGER.debug("Restored color mode: WHITE")
+            # Default to COLOR_TEMP if no color mode was restored
+            else:
+                self._attr_color_mode = ColorMode.COLOR_TEMP
+                LOGGER.debug("Defaulting color mode: COLOR_TEMP")
             
             # Restore effect
             if ATTR_EFFECT in last_state.attributes:
@@ -200,7 +201,7 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
             await self._instance.turn_on()
             if self._instance.reset:
                 LOGGER.debug("Change color to white to reset led strip when other infrared control interact")
-                self._attr_color_mode = ColorMode.WHITE
+                self._attr_color_mode = ColorMode.COLOR_TEMP
                 self._attr_effect = None
                 await self._instance.set_color(self._transform_color_brightness((255, 255, 255), 250))
         
@@ -213,12 +214,6 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
                 self._attr_effect = None
                 brightness = kwargs.get(ATTR_BRIGHTNESS, self.brightness)
                 await self._instance.set_color_temp_kelvin(kwargs[ATTR_COLOR_TEMP_KELVIN], brightness)
-
-        if ATTR_WHITE in kwargs:
-            self._attr_color_mode = ColorMode.WHITE
-            self._attr_effect = None
-            await self._instance.set_color(self._transform_color_brightness((255, 255, 255), kwargs[ATTR_WHITE]))
-            await self._instance.set_white(kwargs[ATTR_WHITE])
 
         if ATTR_RGB_COLOR in kwargs:
             self._attr_color_mode = ColorMode.RGB
