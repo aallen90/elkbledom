@@ -9,12 +9,12 @@
       { "local_name": "LEDBLE*" },
       { "local_name": "ELK-LAMPL*" }
     ],
-  "codeowners": ["@dave-code-ruiz"],
+  "codeowners": ["@aallen90"],
   "config_flow": true,
   "dependencies": ["bluetooth"],
-  "documentation": "https://github.com/dave-code-ruiz/elkbledom",
+  "documentation": "https://github.com/aallen90/elkbledom",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/dave-code-ruiz/elkbledom/issues",
+  "issue_tracker": "https://github.com/aallen90/elkbledom/issues",
   "requirements": ["bleak-retry-connector>=3.5.0","bleak>=0.22.2"],
-  "version": "1.5.0"
+  "version": "1.6.0"
 }

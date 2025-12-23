@@ -5,7 +5,7 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorStateClass,
 )
-from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -30,47 +30,34 @@ async def async_setup_entry(
     instance = data["instance"]
     coordinator = data["coordinator"]
     async_add_entities([
-        BLEDOMRSSISensor(coordinator, instance, "RSSI " + config_entry.data["name"], config_entry.entry_id)
+        BLEDOMRSSISensor(coordinator, instance, config_entry.entry_id)
     ])
 
 
 class BLEDOMRSSISensor(CoordinatorEntity[BLEDOMCoordinator], SensorEntity):
-    """RSSI sensor entity"""
+    """RSSI sensor entity."""
 
-    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, attr_name: str, entry_id: str) -> None:
+    _attr_has_entity_name = True
+    _attr_translation_key = "rssi"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, entry_id: str) -> None:
         super().__init__(coordinator)
         self._instance = bledomInstance
-        self._attr_name = attr_name
-        self._attr_unique_id = self._instance.address + "_rssi"
+        self._attr_unique_id = f"{self._instance.address}_rssi"
         self._entry_id = entry_id
 
     @property
-    def available(self):
+    def available(self) -> bool:
         return self._instance.rssi is not None
-
-    @property
-    def name(self) -> str:
-        return self._attr_name
-
-    @property
-    def unique_id(self) -> str:
-        return self._attr_unique_id
 
     @property
     def native_value(self) -> int | None:
         return self._instance.rssi
-
-    @property
-    def native_unit_of_measurement(self) -> str:
-        return SIGNAL_STRENGTH_DECIBELS_MILLIWATT
-
-    @property
-    def device_class(self) -> SensorDeviceClass:
-        return SensorDeviceClass.SIGNAL_STRENGTH
-
-    @property
-    def state_class(self) -> SensorStateClass:
-        return SensorStateClass.MEASUREMENT
 
     @property
     def device_info(self) -> DeviceInfo:

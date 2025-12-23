@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -26,42 +27,33 @@ async def async_setup_entry(
     instance = data["instance"]
     coordinator = data["coordinator"]
     async_add_entities([
-        BLEDOMMicEffect(coordinator, instance, "Mic Effect " + config_entry.data["name"], config_entry.entry_id)
+        BLEDOMMicEffect(coordinator, instance, config_entry.entry_id)
     ])
 
 class BLEDOMMicEffect(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, SelectEntity):
-    """Microphone Effect selector entity"""
+    """Microphone Effect selector entity."""
 
-    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, attr_name: str, entry_id: str) -> None:
+    _attr_has_entity_name = True
+    _attr_translation_key = "mic_effect"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = MIC_EFFECTS_list
+
+    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, entry_id: str) -> None:
         super().__init__(coordinator)
         self._instance = bledomInstance
-        self._attr_name = attr_name
-        self._attr_unique_id = self._instance.address + "_mic_effect"
+        self._attr_unique_id = f"{self._instance.address}_mic_effect"
         self._current_option = MIC_EFFECTS_list[0]
 
     @property
-    def available(self):
-        return self._instance.is_on != None
-
-    @property
-    def name(self) -> str:
-        return self._attr_name
-
-    @property
-    def unique_id(self) -> str:
-        """Return the unique id."""
-        return self._attr_unique_id
+    def available(self) -> bool:
+        return self._instance.is_on is not None
 
     @property
     def current_option(self) -> str | None:
         return self._current_option
 
     @property
-    def options(self) -> list[str]:
-        return MIC_EFFECTS_list
-
-    @property
-    def device_info(self):
+    def device_info(self) -> DeviceInfo:
         """Return device info."""
         return DeviceInfo(
             identifiers={

@@ -53,5 +53,35 @@
           }
         }
       },
+    "entity": {
+        "sensor": {
+            "rssi": {
+                "name": "RSSI"
+            }
+        },
+        "button": {
+            "sync_time": {
+                "name": "Sync time"
+            }
+        },
+        "switch": {
+            "mic_enable": {
+                "name": "Microphone"
+            }
+        },
+        "number": {
+            "effect_speed": {
+                "name": "Effect speed"
+            },
+            "mic_sensitivity": {
+                "name": "Microphone sensitivity"
+            }
+        },
+        "select": {
+            "mic_effect": {
+                "name": "Microphone effect"
+            }
+        }
+    },
     "title": "Elkbledom"
 }

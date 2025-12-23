@@ -1,0 +1,36 @@
+{
+    "entity": {
+        "sensor": {
+            "rssi": {
+                "default": "mdi:signal"
+            }
+        },
+        "button": {
+            "sync_time": {
+                "default": "mdi:clock-sync"
+            }
+        },
+        "switch": {
+            "mic_enable": {
+                "default": "mdi:microphone-off",
+                "state": {
+                    "on": "mdi:microphone",
+                    "off": "mdi:microphone-off"
+                }
+            }
+        },
+        "number": {
+            "effect_speed": {
+                "default": "mdi:speedometer"
+            },
+            "mic_sensitivity": {
+                "default": "mdi:microphone-settings"
+            }
+        },
+        "select": {
+            "mic_effect": {
+                "default": "mdi:music-circle"
+            }
+        }
+    }
+}

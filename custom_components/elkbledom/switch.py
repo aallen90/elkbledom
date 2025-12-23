@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -28,38 +29,32 @@ async def async_setup_entry(
     instance = data["instance"]
     coordinator = data["coordinator"]
     async_add_entities([
-        BLEDOMMicSwitch(coordinator, instance, "Mic Enable " + config_entry.data["name"], config_entry.entry_id)
+        BLEDOMMicSwitch(coordinator, instance, config_entry.entry_id)
     ])
 
 class BLEDOMMicSwitch(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, SwitchEntity):
-    """Microphone Enable/Disable switch entity"""
+    """Microphone Enable/Disable switch entity."""
 
-    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, attr_name: str, entry_id: str) -> None:
+    _attr_has_entity_name = True
+    _attr_translation_key = "mic_enable"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, entry_id: str) -> None:
         super().__init__(coordinator)
         self._instance = bledomInstance
-        self._attr_name = attr_name
-        self._attr_unique_id = self._instance.address + "_mic_enable"
+        self._attr_unique_id = f"{self._instance.address}_mic_enable"
         self._is_on = False
 
     @property
-    def available(self):
-        return self._instance.is_on != None
-
-    @property
-    def name(self) -> str:
-        return self._attr_name
-
-    @property
-    def unique_id(self) -> str:
-        """Return the unique id."""
-        return self._attr_unique_id
+    def available(self) -> bool:
+        return self._instance.is_on is not None
 
     @property
     def is_on(self) -> bool:
         return self._is_on
 
     @property
-    def device_info(self):
+    def device_info(self) -> DeviceInfo:
         """Return device info."""
         return DeviceInfo(
             identifiers={

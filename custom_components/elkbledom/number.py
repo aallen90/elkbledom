@@ -3,7 +3,9 @@ from __future__ import annotations
 from homeassistant.components.number import (
     NumberEntity,
     NumberEntityDescription,
+    NumberMode,
 )
+from homeassistant.const import EntityCategory
 
 from .elkbledom import BLEDOMInstance
 from .coordinator import BLEDOMCoordinator
@@ -31,32 +33,30 @@ async def async_setup_entry(
     instance = data["instance"]
     coordinator = data["coordinator"]
     async_add_entities([
-        BLEDOMEffectSpeed(coordinator, instance, "Effect Speed " + config_entry.data["name"], config_entry.entry_id),
-        BLEDOMMicSensitivity(coordinator, instance, "Mic Sensitivity " + config_entry.data["name"], config_entry.entry_id)
+        BLEDOMEffectSpeed(coordinator, instance, config_entry.entry_id),
+        BLEDOMMicSensitivity(coordinator, instance, config_entry.entry_id)
     ])
 
 class BLEDOMEffectSpeed(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, NumberEntity):
-    """Effect Speed entity"""
+    """Effect Speed entity."""
 
-    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, attr_name: str, entry_id: str) -> None:
+    _attr_has_entity_name = True
+    _attr_translation_key = "effect_speed"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_min_value = 1
+    _attr_native_max_value = 255
+    _attr_native_step = 1
+    _attr_mode = NumberMode.SLIDER
+
+    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, entry_id: str) -> None:
         super().__init__(coordinator)
         self._instance = bledomInstance
-        self._attr_name = attr_name
-        self._attr_unique_id = self._instance.address + "_effect_speed"
-        self._effect_speed = 0
+        self._attr_unique_id = f"{self._instance.address}_effect_speed"
+        self._effect_speed = 128  # Default to middle
 
     @property
-    def available(self):
-        return self._instance.is_on != None
-
-    @property
-    def name(self) -> str:
-        return self._attr_name
-
-    @property
-    def unique_id(self) -> str:
-        """Return the unique id."""
-        return self._attr_unique_id
+    def available(self) -> bool:
+        return self._instance.is_on is not None
 
     @property
     def native_value(self) -> int | None:
@@ -66,7 +66,7 @@ class BLEDOMEffectSpeed(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, Num
         return self._effect_speed
 
     @property
-    def device_info(self):
+    def device_info(self) -> DeviceInfo:
         """Return device info."""
         return DeviceInfo(
             identifiers={
@@ -76,14 +76,6 @@ class BLEDOMEffectSpeed(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, Num
             model=self._instance._model or "BLEDOM",
             connections={(device_registry.CONNECTION_BLUETOOTH,
                           self._instance.address)},
-        )
-
-    @property
-    def entity_info(self):
-        NumberEntityDescription(
-            key=self.name,
-            native_max_value=255,
-            native_min_value=0,
         )
 
     async def async_set_native_value(self, value: float) -> None:
@@ -105,46 +97,32 @@ class BLEDOMEffectSpeed(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, Num
                 LOG.debug(f"Could not restore effect speed for {self.name}, using default")
 
 class BLEDOMMicSensitivity(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, NumberEntity):
-    """Microphone Sensitivity entity"""
+    """Microphone Sensitivity entity."""
 
-    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, attr_name: str, entry_id: str) -> None:
+    _attr_has_entity_name = True
+    _attr_translation_key = "mic_sensitivity"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_mode = NumberMode.SLIDER
+
+    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, entry_id: str) -> None:
         super().__init__(coordinator)
         self._instance = bledomInstance
-        self._attr_name = attr_name
-        self._attr_unique_id = self._instance.address + "_mic_sensitivity"
+        self._attr_unique_id = f"{self._instance.address}_mic_sensitivity"
         self._mic_sensitivity = 50
 
     @property
-    def available(self):
-        return self._instance.is_on != None
-
-    @property
-    def name(self) -> str:
-        return self._attr_name
-
-    @property
-    def unique_id(self) -> str:
-        """Return the unique id."""
-        return self._attr_unique_id
+    def available(self) -> bool:
+        return self._instance.is_on is not None
 
     @property
     def native_value(self) -> int | None:
         return self._mic_sensitivity
 
     @property
-    def native_min_value(self) -> int:
-        return 0
-
-    @property
-    def native_max_value(self) -> int:
-        return 100
-
-    @property
-    def native_step(self) -> int:
-        return 1
-
-    @property
-    def device_info(self):
+    def device_info(self) -> DeviceInfo:
         """Return device info."""
         return DeviceInfo(
             identifiers={
