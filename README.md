@@ -1,19 +1,36 @@
 # elkbledom HA Integration
 
-<a href="https://www.buymeacoffee.com/davecoderuiz" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
-
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
 Home Assistant integration for LED STRIP or LED Desktop light (lightbar) NAME ELK BLEDOM with android/iphone mobile app duoCo Strip (https://play.google.com/store/apps/details?id=shy.smartled&hl=es&gl=US) or mobile app Lantern Lotus (https://play.google.com/store/apps/details?id=wl.smartled&hl=es&gl=US) or mobile app Lotus Lamp X (https://play.google.com/store/apps/details?id=com.szelk.ledlamppro).
 
-I buy it in amazon spain (https://www.amazon.es/gp/product/B00VFME0Q2)
+> **Note:** This is a fork of [dave-code-ruiz/elkbledom](https://github.com/dave-code-ruiz/elkbledom) with additional features and improvements. Some features (emoji effect labels, color temperature emulation) were inspired by [Satimaro/elkbledom-fastlink](https://github.com/Satimaro/elkbledom-fastlink).
 
-Or lightbar like this (https://www.amazon.es/bedee-Regulable-Inteligente-Bluetooth-Dormitorio/dp/B0BNPMGR1H)
+## Supported Devices
 
-New support for MELK strip, you can buy it in amazon spain (https://www.amazon.es/distancia-Bluetooth-aplicaci%C3%B3n-sincronizaci%C3%B3n-habitaci%C3%B3n/dp/B09VC77GCZ) or search "B09VC77GCZ" in your amazon country shop. MELK device confirmed working: https://www.amazon.com/dp/B07R7NTX6D
+| Device Name | Status | Notes |
+|-------------|--------|-------|
+| ELK-BLE* | ✅ Supported | Original LED strips |
+| ELK-BLEDOM | ✅ Supported | Standard variant (0x04 command byte) |
+| **ELK-BLEDDM** | ✅ Supported | Alternate variant (0x00 command byte) - auto-detected |
+| ELK-BULB* | ✅ Supported | LED bulbs |
+| ELK-LAMPL* | ✅ Supported | Works with Lotus Lamp X app |
+| MELK* | ✅ Supported | Requires init commands (see below) |
+| LEDBLE* | ✅ Supported | Generic LED strips |
 
-New support for ELK-LAMPL strip, works with Lotus Lamp X.
+## Fork Enhancements (v1.6.0+)
+
+This fork adds several improvements over the original:
+
+- **ELK-BLEDDM variant support** - Automatic detection of 0x00 vs 0x04 command byte variants
+- **RGB color calibration** - Configurable per-channel gains (r/g/b) for white balance
+- **Sync Time button** - Synchronize device time with Home Assistant
+- **RSSI sensor** - Monitor Bluetooth signal strength (disabled by default)
+- **Emoji effect labels** - Visual effect names (🌈 Smooth Cycle, ⚡ Jump RGB, etc.)
+- **Brightness mode option** - Choose between auto, RGB, or native brightness control
+- **Color temperature emulation** - RGB-based color temp (1800K-7000K) for devices without native CCT
+- **CoordinatorEntity pattern** - Modern HA architecture with centralized polling
+- **HA best practices** - Proper entity naming, categories, and icon translations
 
 ## Dependencies
 
@@ -36,9 +53,9 @@ BTScan.py relies on bluepy, and the integration relies on bleak-retry-connector 
 pip install -r requirements.txt
 ```
 
-## Supported strips
+## Supported UUIDs
 
-You can scan BT device with BTScan.py in my repository exec: `sudo python3 BTScan.py`, code supports led strips whose name begins with "ELK-BLE" or "MELK" or "ELK-BULB".
+You can scan BT device with BTScan.py in my repository exec: `sudo python3 BTScan.py`, code supports led strips whose name begins with "ELK-BLE" or "ELK-BLEDDM" or "MELK" or "ELK-BULB" or "LEDBLE".
 
 Code supports controlling lights in HA with write uuid: 0000fff3-0000-1000-8000-00805f9b34fb or 0000ffe1-0000-1000-8000-00805f9b34fb
 
@@ -112,7 +129,13 @@ sudo gatttool -b be:59:7a:00:08:xx --char-write-req -a 0x0009 -n 7e00050300ff000
 
 ### [HACS](https://hacs.xyz/) (recommended)
 
-Installation can be done through HACS , search "elkbledom" and download it
+Since this is a fork, you need to add it as a custom repository:
+
+1. Open HACS in Home Assistant
+2. Click the three dots menu → **Custom repositories**
+3. Add `https://github.com/aallen90/elkbledom` with category **Integration**
+4. Search for "ElkBLEDOM" and install
+5. Restart Home Assistant
 
 ### Manual installation
 
@@ -141,37 +164,53 @@ after that, try to restart strip, add your strip to homeassistant and i think yo
 
 ## Config
 
-After Setup, you can config two elkbledom params under Settings -> Integrations -> search elkbledom integration -> Config.
+After Setup, you can configure elkbledom params under Settings → Integrations → ElkBLEDOM → Configure.
 
-#### Reset color when led turn on
+#### Reset color when LED turns on
 
-When led strip turn on, led reset to color white or not. This is needed if you want because i don´t know led strip state and is needed a reset.
+When LED strip turns on, reset to color white. Useful if external controls (IR remote) changed the state.
 
 #### Disconnect delay or timeout
 
-You can configure time led strip disconnected from HA (0 equal never disconnect).
+Time before disconnecting from the LED strip (0 = never disconnect).
+
+#### RGB Gain (R/G/B)
+
+Color calibration for white balance. Values 0.0-3.0. Use `test_device.py` to find optimal values for your device.
+
+#### Brightness Mode
+
+- **auto** - Integration chooses the best method
+- **rgb** - Scale RGB values for brightness (better color accuracy)
+- **native** - Use device's brightness command
 
 ## Features
 
 #### Discovery
 
-Automatically discover ELK BLEDOM based lights without manually hunting for Bluetooth MAC address
+Automatically discover ELK BLEDOM based lights without manually hunting for Bluetooth MAC address.
 
 #### On/Off/RGB/Brightness support
 
-#### Emulated RGB brightness
+#### Color Temperature Emulation
 
-Supports adjusting brightness of RGB lights
+RGB-based color temperature from 1800K (warm) to 7000K (cool) for devices without native CCT.
+
+#### Effect Support
+
+Light effects with emoji labels: 🌈 Smooth Cycle, ⚡ Jump RGB, 💓 Breathing, and more.
 
 #### Multiple light support
+
+#### Microphone Effects
+
+Sound-reactive effects with sensitivity control (on supported devices).
 
 ## Not supported
 
 #### Live state polling
 
 External control (i.e. IR remote) state changes do NOT reflect in Home Assistant and are NOT updated.
-
-#### [Light modes] (blinking, fading, etc) are not yet supported.
 
 ## Enable debug mode
 
