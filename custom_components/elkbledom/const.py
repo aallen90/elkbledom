@@ -9,6 +9,12 @@ CONF_RGB_GAIN_R = "rgb_gain_r"
 CONF_RGB_GAIN_G = "rgb_gain_g"
 CONF_RGB_GAIN_B = "rgb_gain_b"
 
+# Brightness mode: auto, rgb, or native
+# Some devices respond better to different brightness commands
+CONF_BRIGHTNESS_MODE = "brightness_mode"
+BRIGHTNESS_MODES = ["auto", "rgb", "native"]
+DEFAULT_BRIGHTNESS_MODE = "auto"
+
 class EFFECTS (Enum):
     # Light Effects (0x87-0x9C)
     jump_red_green_blue = 0x87
@@ -34,6 +40,34 @@ class EFFECTS (Enum):
     blink_white = 0x9c
     blink_red_green_blue_yellow_cyan_magenta_white = 0x95
 
+
+# Emoji labels for effects (UI display)
+# Inspired by Satimaro/elkbledom-fastlink (MIT License)
+EFFECT_LABELS = {
+    "jump_red_green_blue": "⚡ Jump RGB",
+    "jump_red_green_blue_yellow_cyan_magenta_white": "🌈 Jump All",
+    "crossfade_red": "🔴 Fade Red",
+    "crossfade_green": "🟢 Fade Green",
+    "crossfade_blue": "🔵 Fade Blue",
+    "crossfade_yellow": "🟡 Fade Yellow",
+    "crossfade_cyan": "💠 Fade Cyan",
+    "crossfade_magenta": "💜 Fade Magenta",
+    "crossfade_white": "🤍 Fade White",
+    "crossfade_red_green": "🔴🟢 Fade R-G",
+    "crossfade_red_blue": "🔴🔵 Fade R-B",
+    "crossfade_green_blue": "🟢🔵 Fade G-B",
+    "crossfade_red_green_blue": "🌤️ Fade RGB",
+    "crossfade_red_green_blue_yellow_cyan_magenta_white": "🌈 Smooth Cycle",
+    "blink_red": "🔴 Blink Red",
+    "blink_green": "🟢 Blink Green",
+    "blink_blue": "🔵 Blink Blue",
+    "blink_yellow": "🟡 Blink Yellow",
+    "blink_cyan": "💠 Blink Cyan",
+    "blink_magenta": "💜 Blink Magenta",
+    "blink_white": "🤍 Blink White",
+    "blink_red_green_blue_yellow_cyan_magenta_white": "🎇 Blink All",
+}
+
 class MIC_EFFECTS (Enum):
     # Microphone Effects (0x80-0x87)
     mic_energic = 0x80
@@ -45,7 +79,8 @@ class MIC_EFFECTS (Enum):
     mic_effect_6 = 0x86
     mic_effect_7 = 0x87
 
-EFFECTS_list = ['jump_red_green_blue',
+EFFECTS_list = [EFFECT_LABELS.get(e, e) for e in [
+    'jump_red_green_blue',
     'jump_red_green_blue_yellow_cyan_magenta_white',
     'crossfade_red',
     'crossfade_green',
@@ -67,7 +102,10 @@ EFFECTS_list = ['jump_red_green_blue',
     'blink_magenta',
     'blink_white',
     'blink_red_green_blue_yellow_cyan_magenta_white'
-    ]
+]]
+
+# Reverse mapping: emoji label -> effect name
+EFFECT_LABEL_TO_NAME = {v: k for k, v in EFFECT_LABELS.items()}
 
 MIC_EFFECTS_list = [
     'mic_energic',

@@ -329,6 +329,9 @@ class BLEDOMInstance:
         self._rgb_gain_g: float = 1.0
         self._rgb_gain_b: float = 1.0
 
+        # Brightness mode: "auto", "rgb", or "native"
+        self._brightness_mode: str = "auto"
+
         try:
             self._device = async_ble_device_from_address(hass, self._address)
         except (Exception) as error:
@@ -392,6 +395,20 @@ class BLEDOMInstance:
             self._clamp_byte(g * self._rgb_gain_g),
             self._clamp_byte(b * self._rgb_gain_b),
         )
+
+    @property
+    def brightness_mode(self) -> str:
+        """Get brightness mode: 'auto', 'rgb', or 'native'."""
+        return self._brightness_mode
+
+    @brightness_mode.setter
+    def brightness_mode(self, value: str) -> None:
+        """Set brightness mode."""
+        if value in ("auto", "rgb", "native"):
+            self._brightness_mode = value
+        else:
+            LOGGER.warning("Invalid brightness_mode '%s', using 'auto'", value)
+            self._brightness_mode = "auto"
     
     def get_white_cmd(self, intensity: int):
         white_cmd = self._white_cmd.copy()

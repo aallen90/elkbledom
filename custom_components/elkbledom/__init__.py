@@ -12,6 +12,7 @@ from .const import (
     CONF_RGB_GAIN_R,
     CONF_RGB_GAIN_G,
     CONF_RGB_GAIN_B,
+    CONF_BRIGHTNESS_MODE,
 )
 from .elkbledom import BLEDOMInstance
 from .coordinator import BLEDOMCoordinator
@@ -35,10 +36,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     rgb_gain_r = entry.options.get(CONF_RGB_GAIN_R, 1.0)
     rgb_gain_g = entry.options.get(CONF_RGB_GAIN_G, 1.0)
     rgb_gain_b = entry.options.get(CONF_RGB_GAIN_B, 1.0)
+    brightness_mode = entry.options.get(CONF_BRIGHTNESS_MODE, "auto")
     LOGGER.debug("Config: Reset: %s, Delay: %s, Mac: %s", reset, delay, mac)
 
     instance = BLEDOMInstance(mac, reset, delay, hass)
     instance.set_rgb_gains(rgb_gain_r, rgb_gain_g, rgb_gain_b)
+    instance.brightness_mode = brightness_mode
     
     coordinator = BLEDOMCoordinator(hass, instance)
     await coordinator.async_config_entry_first_refresh()
@@ -79,5 +82,6 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         entry.options.get(CONF_RGB_GAIN_G, 1.0),
         entry.options.get(CONF_RGB_GAIN_B, 1.0),
     )
+    instance.brightness_mode = entry.options.get(CONF_BRIGHTNESS_MODE, "auto")
     if entry.title != instance.name:
         await hass.config_entries.async_reload(entry.entry_id)

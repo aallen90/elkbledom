@@ -37,8 +37,18 @@
         "step": {
           "user": {
             "data": {
-              "reset": "Reset color when led turn on",
-              "delay": "Disconnect delay in seconds (0 equal never disconnect)"
+              "reset": "Reset color when LED turns on",
+              "delay": "Disconnect delay in seconds (0 = never disconnect)",
+              "rgb_gain_r": "Red channel gain (0.0-3.0)",
+              "rgb_gain_g": "Green channel gain (0.0-3.0)",
+              "rgb_gain_b": "Blue channel gain (0.0-3.0)",
+              "brightness_mode": "Brightness mode"
+            },
+            "data_description": {
+              "rgb_gain_r": "Adjust red color balance. Use test_device.py to calibrate.",
+              "rgb_gain_g": "Adjust green color balance. Use test_device.py to calibrate.",
+              "rgb_gain_b": "Adjust blue color balance. Use test_device.py to calibrate.",
+              "brightness_mode": "auto: Let integration choose. rgb: Scale RGB values. native: Use device brightness command."
             }
           }
         }

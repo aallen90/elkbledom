@@ -6,7 +6,7 @@ from typing import Any, Optional, Tuple
 
 from .elkbledom import BLEDOMInstance
 from .coordinator import BLEDOMCoordinator
-from .const import DOMAIN, EFFECTS, EFFECTS_list
+from .const import DOMAIN, EFFECTS, EFFECTS_list, EFFECT_LABEL_TO_NAME
 
 from homeassistant.const import CONF_MAC
 from homeassistant.helpers import config_validation as cv
@@ -169,8 +169,10 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
             # Restore effect
             if ATTR_EFFECT in last_state.attributes:
                 self._attr_effect = last_state.attributes[ATTR_EFFECT]
-                if self._attr_effect in EFFECTS:
-                    self._instance._effect = EFFECTS[self._attr_effect].value
+                # Convert emoji label to effect name if needed
+                effect_name = EFFECT_LABEL_TO_NAME.get(self._attr_effect, self._attr_effect)
+                if effect_name in EFFECTS:
+                    self._instance._effect = EFFECTS[effect_name].value
                 LOGGER.debug(f"Restored effect: {self._attr_effect}")
             
             # Restore effect speed from extra attributes
@@ -227,7 +229,9 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
 
         if ATTR_EFFECT in kwargs and kwargs[ATTR_EFFECT] != self.effect:
             self._attr_effect = kwargs[ATTR_EFFECT]
-            effect_value = EFFECTS[kwargs[ATTR_EFFECT]].value
+            # Convert emoji label back to effect name if needed
+            effect_name = EFFECT_LABEL_TO_NAME.get(kwargs[ATTR_EFFECT], kwargs[ATTR_EFFECT])
+            effect_value = EFFECTS[effect_name].value
             await self._instance.set_effect(effect_value)
             # Also send effect speed to ensure it's applied
             if self._instance.effect_speed is not None:

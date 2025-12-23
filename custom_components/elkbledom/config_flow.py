@@ -14,7 +14,7 @@ from homeassistant.components.bluetooth import (
     async_discovered_service_info,
 )
 
-from .const import DOMAIN, CONF_RESET, CONF_DELAY, CONF_RGB_GAIN_R, CONF_RGB_GAIN_G, CONF_RGB_GAIN_B
+from .const import DOMAIN, CONF_RESET, CONF_DELAY, CONF_RGB_GAIN_R, CONF_RGB_GAIN_G, CONF_RGB_GAIN_B, CONF_BRIGHTNESS_MODE, BRIGHTNESS_MODES
 import logging
 
 LOGGER = logging.getLogger(__name__)
@@ -211,6 +211,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             CONF_RGB_GAIN_R: 1.0,
             CONF_RGB_GAIN_G: 1.0,
             CONF_RGB_GAIN_B: 1.0,
+            CONF_BRIGHTNESS_MODE: "auto",
         }
         if user_input is not None:
             return self.async_create_entry(
@@ -221,6 +222,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_RGB_GAIN_R: float(user_input[CONF_RGB_GAIN_R]),
                     CONF_RGB_GAIN_G: float(user_input[CONF_RGB_GAIN_G]),
                     CONF_RGB_GAIN_B: float(user_input[CONF_RGB_GAIN_B]),
+                    CONF_BRIGHTNESS_MODE: user_input[CONF_BRIGHTNESS_MODE],
                 },
             )
 
@@ -242,6 +244,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_RGB_GAIN_B,
                         default=options.get(CONF_RGB_GAIN_B, 1.0),
                     ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=3.0)),
+                    vol.Optional(
+                        CONF_BRIGHTNESS_MODE,
+                        default=options.get(CONF_BRIGHTNESS_MODE, "auto"),
+                    ): vol.In(BRIGHTNESS_MODES),
                 }
             ), errors=errors
         )
