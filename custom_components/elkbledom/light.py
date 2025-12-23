@@ -5,12 +5,14 @@ import voluptuous as vol
 from typing import Any, Optional, Tuple
 
 from .elkbledom import BLEDOMInstance
+from .coordinator import BLEDOMCoordinator
 from .const import DOMAIN, EFFECTS, EFFECTS_list
 
 from homeassistant.const import CONF_MAC
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.components.light import (
     PLATFORM_SCHEMA,
     ATTR_BRIGHTNESS,
@@ -33,12 +35,14 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 })
 
 async def async_setup_entry(hass, config_entry, async_add_devices):
-    instance = hass.data[DOMAIN][config_entry.entry_id]
-    await instance.update()
-    async_add_devices([BLEDOMLight(instance, config_entry.data["name"], config_entry.entry_id)])
+    data = hass.data[DOMAIN][config_entry.entry_id]
+    instance = data["instance"]
+    coordinator = data["coordinator"]
+    async_add_devices([BLEDOMLight(coordinator, instance, config_entry.data["name"], config_entry.entry_id)])
 
-class BLEDOMLight(RestoreEntity, LightEntity):
-    def __init__(self, bledomInstance: BLEDOMInstance, name: str, entry_id: str) -> None:
+class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEntity):
+    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, name: str, entry_id: str) -> None:
+        super().__init__(coordinator)
         self._instance = bledomInstance
         self._entry_id = entry_id
         self._attr_supported_color_modes = {ColorMode.RGB, ColorMode.COLOR_TEMP, ColorMode.WHITE}
@@ -47,6 +51,7 @@ class BLEDOMLight(RestoreEntity, LightEntity):
         self._attr_name = name
         self._attr_effect = None
         self._attr_unique_id = self._instance.address
+        self._attr_has_entity_name = True
 
     @property
     def available(self):
@@ -99,16 +104,17 @@ class BLEDOMLight(RestoreEntity, LightEntity):
         """Return device info."""
         return DeviceInfo(
             identifiers={
-                # Serial numbers are unique identifiers within a specific domain
                 (DOMAIN, self._instance.address)
             },
             name=self.name,
-            connections={(device_registry.CONNECTION_NETWORK_MAC, self._instance.address)},
+            manufacturer="ELK",
+            model=self._instance._model or "BLEDOM",
+            connections={(device_registry.CONNECTION_BLUETOOTH, self._instance.address)},
         )
 
     @property
     def should_poll(self):
-        """No polling needed for a demo light."""
+        """No polling needed, coordinator handles updates."""
         return False
 
     async def async_added_to_hass(self) -> None:

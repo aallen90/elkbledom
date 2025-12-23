@@ -10,9 +10,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers import device_registry
 
 from .elkbledom import BLEDOMInstance
+from .coordinator import BLEDOMCoordinator
 from .const import DOMAIN
 
 import logging
@@ -24,16 +26,19 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    instance = hass.data[DOMAIN][config_entry.entry_id]
+    data = hass.data[DOMAIN][config_entry.entry_id]
+    instance = data["instance"]
+    coordinator = data["coordinator"]
     async_add_entities([
-        BLEDOMRSSISensor(instance, "RSSI " + config_entry.data["name"], config_entry.entry_id)
+        BLEDOMRSSISensor(coordinator, instance, "RSSI " + config_entry.data["name"], config_entry.entry_id)
     ])
 
 
-class BLEDOMRSSISensor(SensorEntity):
+class BLEDOMRSSISensor(CoordinatorEntity[BLEDOMCoordinator], SensorEntity):
     """RSSI sensor entity"""
 
-    def __init__(self, bledomInstance: BLEDOMInstance, attr_name: str, entry_id: str) -> None:
+    def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, attr_name: str, entry_id: str) -> None:
+        super().__init__(coordinator)
         self._instance = bledomInstance
         self._attr_name = attr_name
         self._attr_unique_id = self._instance.address + "_rssi"
@@ -70,5 +75,10 @@ class BLEDOMRSSISensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
+            identifiers={
+                (DOMAIN, self._instance.address)
+            },
+            manufacturer="ELK",
+            model=self._instance._model or "BLEDOM",
             connections={(device_registry.CONNECTION_BLUETOOTH, self._instance.address)},
         )
