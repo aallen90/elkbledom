@@ -5,10 +5,31 @@ description = "Home Assistant integration for ELK-BLEDOM and compatible Bluetoot
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.11"
+dependencies = [
+    "homeassistant",
+    "bleak>=2.0.0",
+    "bleak-retry-connector>=3.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-homeassistant-custom-component",
+    "ruff",
+]
 
 [tool.pyright]
-# Home Assistant custom components rely on HA Core and other packages
-# that are installed at runtime, not in the dev environment
-reportMissingImports = "none"
-reportMissingModuleSource = "none"
 pythonVersion = "3.11"
+typeCheckingMode = "basic"
+# These modules are runtime dependencies provided by HA
+reportMissingImports = false
+reportMissingModuleSource = false
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]

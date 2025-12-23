@@ -1,21 +1,14 @@
-import csv
 import asyncio
+import logging
+from collections.abc import Callable
+from typing import Any, TypeVar, cast
+
 from bleak import BleakClient
-
-import asyncio
-from datetime import datetime
-
-from bleak.backends.device import BLEDevice
-from bleak.backends.service import BleakGATTServiceCollection
 from bleak.exc import BleakDBusError
 from bleak_retry_connector import BLEAK_RETRY_EXCEPTIONS as BLEAK_EXCEPTIONS
 from bleak_retry_connector import (
     BleakNotFoundError,
 )
-from typing import Any, TypeVar, cast
-from collections.abc import Callable
-import asyncio
-import logging
 
 address = "BE:16:83:00:16:21"
 
@@ -80,7 +73,7 @@ async def main():
         for i in range(0x00,0x10):
             hex_val = f"{i:#0{4}x}"
             val = "7e07038"+hex_val[3:]+"04ffff00ef"
-            await send_packet(val, client)    
+            await send_packet(val, client)
             note = input("Note:")
             if note == "":
                 note = f"{prev_note}_{note_index}"
@@ -90,7 +83,7 @@ async def main():
                 note_index = 0
             notes.append(note)
             packet_vals.append(hex_val)
-            
+
 
         '''
         # extract packets.csv with only the packets from BLE Logs via Vireshark
@@ -107,7 +100,7 @@ async def main():
     with open('packet_notes.txt', 'w') as outfile:
         for i in range(0,len(notes)):
             outfile.write(f"{notes[i]} = {packet_vals[i]}\n")
-    
+
     '''
     with open('packet_notes.csv', 'w', newline='') as csvfile:
         writer = csv.writer(csvfile, delimiter=' ',quoting=csv.QUOTE_NONE)

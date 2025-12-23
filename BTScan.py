@@ -1,7 +1,8 @@
-from bluepy.btle import Scanner, DefaultDelegate, BTLEDisconnectError, Peripheral, BTLEException
+import logging
 from queue import Queue
 from threading import Thread
-import logging
+
+from bluepy.btle import BTLEDisconnectError, BTLEException, DefaultDelegate, Peripheral, Scanner
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class BleServicesAndChracteristicsChars:
     BLE_WRITE_CHARACTERISTICS = {"00035b03-58e6-07dd-021a-08123a000301","49535343-1E4D-4BD9-BA61-23C647249616","6e400002-b5a3-f393-e0a9-e50e24dcca9e"}
     BLE_READ_CHARACTERISTICS = {"00035b03-58e6-07dd-021a-08123a0003ff","49535343-1E4D-4BD9-BA61-23C647249616","6e400003-b5a3-f393-e0a9-e50e24dcca9e"}
     DEVICE_NAME_CONTENT = "UTOPIC"
-    
+
 class cDelegate(DefaultDelegate):
     def __init__(self):
         DefaultDelegate.__init__(self)
@@ -43,7 +44,7 @@ class cDelegate(DefaultDelegate):
         elif isNewData:
             print("Received new data from", dev.addr)
 
-class Discovery():
+class Discovery:
     def __init__(self):
         scanner = Scanner().withDelegate(cDelegate())
         self.devices = scanner.scan(10.0)
@@ -60,7 +61,7 @@ class Discovery():
             print("return device address")
         return self.utopicdevice
 
-class UtopicDevice():
+class UtopicDevice:
     def __init__(self, device):
         self.device = device
         self.utopicdevice = None
@@ -110,7 +111,7 @@ class BLEMagic(DefaultDelegate):
         self.utopicKey = None
         self.utopicdevices = []
         self.periph = None
-        
+
         # create the TX queue
         self._tx_queue = Queue()
 
@@ -175,7 +176,7 @@ class BLEMagic(DefaultDelegate):
             else:
                 print("not read")
             self.utopicdevices.append(utopicdevice)
-    
+
     def kv2dict(kvstr, sep=";"):
         result = {}
         for x in kvstr.split(sep, 50):

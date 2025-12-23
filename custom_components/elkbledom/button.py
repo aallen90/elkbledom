@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from homeassistant.components.button import ButtonEntity, ButtonDeviceClass
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers import device_registry
-
-from .elkbledom import BLEDOMInstance
-from .coordinator import BLEDOMCoordinator
-from .const import DOMAIN
-
 import logging
+
+from homeassistant.components.button import ButtonEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import DOMAIN
+from .coordinator import BLEDOMCoordinator
+from .elkbledom import BLEDOMInstance
 
 LOG = logging.getLogger(__name__)
 

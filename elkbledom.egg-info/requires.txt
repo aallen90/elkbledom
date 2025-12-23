@@ -1,0 +1,9 @@
+homeassistant
+bleak>=2.0.0
+bleak-retry-connector>=3.5.0
+
+[dev]
+pytest
+pytest-asyncio
+pytest-homeassistant-custom-component
+ruff

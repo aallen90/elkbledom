@@ -11,3 +11,4 @@ env/
 
 # Editor
 .vscode/
+.venv/

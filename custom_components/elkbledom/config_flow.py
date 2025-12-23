@@ -1,21 +1,29 @@
 import asyncio
-from .elkbledom import BLEDOMInstance
-from .elkbledom import DeviceData
+import logging
 from typing import Any
 
-from homeassistant import config_entries
-from homeassistant.const import CONF_MAC
 import voluptuous as vol
-from homeassistant.helpers.device_registry import format_mac
-from homeassistant.data_entry_flow import FlowResult
-from homeassistant.core import callback
+from homeassistant import config_entries
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
 )
+from homeassistant.const import CONF_MAC
+from homeassistant.core import callback
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.device_registry import format_mac
 
-from .const import DOMAIN, CONF_RESET, CONF_DELAY, CONF_RGB_GAIN_R, CONF_RGB_GAIN_G, CONF_RGB_GAIN_B, CONF_BRIGHTNESS_MODE, BRIGHTNESS_MODES
-import logging
+from .const import (
+    BRIGHTNESS_MODES,
+    CONF_BRIGHTNESS_MODE,
+    CONF_DELAY,
+    CONF_RESET,
+    CONF_RGB_GAIN_B,
+    CONF_RGB_GAIN_G,
+    CONF_RGB_GAIN_R,
+    DOMAIN,
+)
+from .elkbledom import BLEDOMInstance, DeviceData
 
 LOGGER = logging.getLogger(__name__)
 DATA_SCHEMA = vol.Schema({("host"): str})
@@ -75,7 +83,7 @@ class BLEDOMFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         LOGGER.debug("Discovered bluetooth devices, step bluetooth confirm, : %s", user_input)
         self._set_confirm_only()
         return await self.async_step_user()
-    
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -104,7 +112,7 @@ class BLEDOMFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             device = DeviceData(self.hass, discovery_info)
             if device.is_supported:
                 self._discovered_devices.append(device)
-        
+
         if not self._discovered_devices:
             return await self.async_step_manual()
 
@@ -128,7 +136,7 @@ class BLEDOMFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 if user_input["flicker"]:
                     return self.async_create_entry(title=self.name, data={CONF_MAC: self.mac, "name": self.name})
                 return self.async_abort(reason="cannot_validate")
-            
+
             if "retry" in user_input and not user_input["retry"]:
                 return self.async_abort(reason="cannot_connect")
 
@@ -141,7 +149,7 @@ class BLEDOMFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         vol.Required("retry"): bool
                     }
                 ), errors={"base": "connect"})
-        
+
         return self.async_show_form(
             step_id="validate", data_schema=vol.Schema(
                 {
@@ -150,7 +158,7 @@ class BLEDOMFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             ), errors={})
 
     async def async_step_manual(self, user_input: "dict[str, Any] | None" = None):
-        if user_input is not None:            
+        if user_input is not None:
             self.mac = user_input[CONF_MAC]
             self.name = user_input["name"]
             await self.async_set_unique_id(format_mac(self.mac))
@@ -197,7 +205,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, _user_input=None):
         """Manage the options."""
         return await self.async_step_user()
-    
+
     async def async_step_user(self, user_input=None):
         """Handle a flow initialized by the user."""
         errors = {}

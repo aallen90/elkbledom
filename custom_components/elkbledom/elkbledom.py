@@ -2,13 +2,14 @@ import asyncio
 import json
 import logging
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional, Tuple, TypeVar, cast
+from typing import Any, TypeVar, cast
 
-from bleak.backends.device import BLEDevice
 from bleak.backends.characteristic import BleakGATTCharacteristic
+from bleak.backends.device import BLEDevice
 from bleak.backends.service import BleakGATTServiceCollection
 from bleak.exc import BleakDBusError
 from bleak_retry_connector import BLEAK_RETRY_EXCEPTIONS as BLEAK_EXCEPTIONS
@@ -43,8 +44,8 @@ class ModelConfig:
     # Default RGB gains for better white balance (1.0 = no adjustment)
     default_rgb_gains: tuple[float, float, float] = (1.0, 1.0, 1.0)
     # Alternative commands for hardware variants (e.g., ELK-BLEDDM has 0x00 vs 0x04)
-    alt_turn_on_cmd: Optional[list[int]] = None
-    alt_turn_off_cmd: Optional[list[int]] = None
+    alt_turn_on_cmd: list[int] | None = None
+    alt_turn_off_cmd: list[int] | None = None
 
 
 # Model database - each model has its own configuration
@@ -151,7 +152,7 @@ def get_supported_name_prefixes() -> list[str]:
 
 def get_all_characteristic_uuids() -> tuple[set[str], set[str]]:
     """Get unique read and write characteristic UUIDs from all models.
-    
+
     Returns:
         Tuple of (read_uuids, write_uuids) as sets.
     """
@@ -168,33 +169,33 @@ QUERY_COMMANDS = [
     ([0x7e, 0x00, 0x81, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Status query 0x81"),
     ([0x7e, 0x00, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Status query 0x82"),
     ([0x7e, 0x00, 0x83, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Status query 0x83"),
-    
+
     # Short format commands
     ([0xef, 0x01, 0x77], "Short query v1"),
     ([0x7e, 0x00, 0x10], "Short query v2"),
     ([0x7e, 0x10], "Minimal query"),
     ([0x25, 0x00], "Minimal query 2"),
     ([0x25, 0x02], "Minimal query 3"),
-    
+
     # MELK specific commands
     ([0x7e, 0x04, 0x01, 0x00, 0xff, 0x00, 0xff, 0x00, 0xef], "MELK status query"),
     ([0x7e, 0x07, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0xef], "MELK query v2"),
-    
+
     # Alternative long format
     ([0x7e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Get all status"),
     ([0x7e, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Status cmd 0x01"),
     ([0x7e, 0x04, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef], "Power status query"),
-    
+
     # LEDBLE specific
     ([0x7e, 0x00, 0x04, 0xfa, 0x00, 0x00, 0x00, 0x00, 0xef], "LEDBLE status"),
     ([0xcc, 0x23, 0x33], "LEDBLE short status"),
-    
+
     # Other variants found in wild
     ([0xaa, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55], "Variant header 0xaa"),
     ([0x7e, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x05"),
-   
+
     # ========== 30 COMANDOS ADICIONALES ==========
-    
+
     # Variantes 0x7e con diferentes bytes de comando (0x02-0x0f)
     ([0x7e, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x02"),
     ([0x7e, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x03"),
@@ -206,7 +207,7 @@ QUERY_COMMANDS = [
     ([0x7e, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x0b"),
     ([0x7e, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x0c"),
     ([0x7e, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x0d"),
-    
+
     # Comandos con segundo byte variable (prefijo alternativo)
     ([0x7e, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x01"),
     ([0x7e, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x02"),
@@ -215,7 +216,7 @@ QUERY_COMMANDS = [
     ([0x7e, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x06"),
     ([0x7e, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x08"),
     ([0x7e, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x09"),
-    
+
     # Comandos cortos con diferentes protocolos
     ([0xef, 0x01], "Minimal EF query"),
     ([0xef, 0x77], "EF query 0x77"),
@@ -224,12 +225,12 @@ QUERY_COMMANDS = [
     ([0x10, 0x01], "Query 0x10 0x01"),
     ([0xaa, 0x00], "AA protocol query"),
     ([0xbb, 0x00, 0x00], "BB protocol query"),
-    
+
     # Comandos tipo checksum/CRC diferentes
     ([0x7e, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff], "Query end 0xff"),
     ([0x7e, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfe], "Query end 0xfe"),
     ([0x7e, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xee], "Query end 0xee"),
-    
+
     # Comandos tipo "ping" o "hello"
     ([0xff, 0x00, 0x00], "Ping command"),
     ([0x00, 0x00, 0x00], "Null query"),
@@ -279,7 +280,7 @@ def retry_bluetooth_connection_error(func: WrapFuncType) -> WrapFuncType:
 
 class CharacteristicMissingError(Exception):
     """Raised when a characteristic is missing."""
-class DeviceData():
+class DeviceData:
     def __init__(self, hass, discovery_info):
         self._discovery = discovery_info
         self._supported = any(self._discovery.name.lower().startswith(prefix.lower()) for prefix in MODEL_DB.keys())
@@ -288,7 +289,7 @@ class DeviceData():
         self._rssi = self._discovery.rssi
         self._hass = hass
         self._bledevice = async_ble_device_from_address(hass, self._address)
-        
+
     @property
     def is_supported(self) -> bool:
         return self._supported
@@ -308,10 +309,10 @@ class DeviceData():
     @property
     def rssi(self):
         return self._rssi
-    
+
     def bledevice(self) -> BLEDevice:
         return self._bledevice
-    
+
     def update_device(self):
         """Update device info from BLE discovery."""
         for discovery_info in async_discovered_service_info(self._hass):
@@ -378,7 +379,7 @@ class BLEDOMInstance:
                 LOGGER.debug("device %s: %s %s",devicedata.name, devicedata.address, devicedata.rssi)
                 if devicedata.is_supported:
                     self._device_data = devicedata
-        
+
         if not self._device:
             raise ConfigEntryNotReady(f"You need to add bluetooth integration (https://www.home-assistant.io/integrations/bluetooth) or couldn't find a nearby device with address: {address}")
 
@@ -390,11 +391,11 @@ class BLEDOMInstance:
             r, g, b = model_config.default_rgb_gains
             self.set_rgb_gains(r, g, b)
         LOGGER.debug('Model information for device %s : ModelNo %s, Turn on cmd %s, Turn off cmd %s, White cmd %s, rssi %s', self._device.name, self._model, self._turn_on_cmd, self._turn_off_cmd, self._white_cmd, self.rssi)
-        
+
     def _detect_model(self):
         """Detect the LED model from the device name and load its configuration."""
         device_name_lower = self._device.name.lower()
-        
+
         for name, config in MODEL_DB.items():
             if device_name_lower.startswith(name.lower()):
                 self._model = name
@@ -407,7 +408,7 @@ class BLEDOMInstance:
                 self._max_color_temp_kelvin = config.max_color_temp_k
                 self._min_color_temp_kelvin = config.min_color_temp_k
                 return name
-        
+
         # Fallback to first model if no match (shouldn't happen if discovery is working)
         LOGGER.warning("Unknown device model '%s', using default configuration", self._device.name)
         first_config = next(iter(MODEL_DB.values()))
@@ -459,21 +460,21 @@ class BLEDOMInstance:
         else:
             LOGGER.warning("Invalid brightness_mode '%s', using 'auto'", value)
             self._brightness_mode = "auto"
-    
+
     def get_white_cmd(self, intensity: int):
         white_cmd = self._white_cmd.copy()
         bb_index = white_cmd.index(0xbb) if 0xbb in white_cmd else -1
         if bb_index >= 0:
             white_cmd[bb_index] = int(intensity*100/255)
         return white_cmd
-    
+
     def get_effect_speed_cmd(self, value: int):
         effect_speed_cmd = self._effect_speed_cmd.copy()
         bb_index = effect_speed_cmd.index(0xbb) if 0xbb in effect_speed_cmd else -1
         if bb_index >= 0:
             effect_speed_cmd[bb_index] = int(value)
         return effect_speed_cmd
-    
+
     def get_effect_cmd(self, value: int):
         effect_cmd = self._effect_cmd.copy()
         bb_index = effect_cmd.index(0xbb) if 0xbb in effect_cmd else -1
@@ -489,7 +490,7 @@ class BLEDOMInstance:
             color_temp_cmd[bb_indices[0]] = int(warm)
             color_temp_cmd[bb_indices[1]] = int(cold)
         return color_temp_cmd
-            
+
     async def _write(self, data: bytearray):
         """Send command to device and read response."""
         await self._ensure_connected()
@@ -526,15 +527,15 @@ class BLEDOMInstance:
     @property
     def brightness(self):
         return self._brightness
-    
+
     @property
     def min_color_temp_kelvin(self):
         return self._min_color_temp_kelvin
-    
+
     @property
     def max_color_temp_kelvin(self):
         return self._max_color_temp_kelvin
-    
+
     @property
     def color_temp_kelvin(self):
         return self._color_temp_kelvin
@@ -543,23 +544,23 @@ class BLEDOMInstance:
     @property
     def effect(self):
         return self._effect
-    
+
     @property
     def effect_speed(self):
         return self._effect_speed
-    
+
     @property
     def mic_effect(self):
         return self._mic_effect
-    
+
     @property
     def mic_sensitivity(self):
         return self._mic_sensitivity
-    
+
     @property
     def mic_enabled(self):
         return self._mic_enabled
-    
+
     @retry_bluetooth_connection_error
     async def set_color_temp(self, value: int):
         if value > 100:
@@ -573,7 +574,7 @@ class BLEDOMInstance:
     @retry_bluetooth_connection_error
     async def set_color_temp_kelvin(self, value: int, brightness: int):
         """Set color temperature in Kelvin.
-        
+
         For devices with native CCT support (dual white LEDs), uses native command.
         For RGB-only devices, emulates color temperature using RGB values.
         """
@@ -582,16 +583,16 @@ class BLEDOMInstance:
             value = self._min_color_temp_kelvin
         if value > self._max_color_temp_kelvin:
             value = self._max_color_temp_kelvin
-        
+
         # Ensure brightness is not None before using it
         if brightness is None:
             brightness = self._brightness if self._brightness is not None else 255
         self._brightness = brightness
-        
+
         # Try native CCT command first if device has color temp command
         if self._color_temp_cmd is not None:
             try:
-                color_temp_percent = int(((value - self._min_color_temp_kelvin) * 100) / 
+                color_temp_percent = int(((value - self._min_color_temp_kelvin) * 100) /
                                         (self._max_color_temp_kelvin - self._min_color_temp_kelvin))
                 brightness_percent = int(brightness * 100 / 255)
                 color_temp_cmd = self.get_color_temp_cmd(color_temp_percent, brightness_percent)
@@ -600,35 +601,35 @@ class BLEDOMInstance:
                 return
             except Exception as e:
                 LOGGER.debug("Native CCT command failed, falling back to RGB emulation: %s", e)
-        
+
         # RGB emulation fallback (for RGB-only devices)
         # Interpolate between warm white (2700K) and cool white (6500K) using RGB
         # Warm: amber-orange tint, Cool: slight blue tint
         # Values based on common RGB LED color temperature emulation
         warm_rgb = (255, 138, 18)   # ~1800K - very warm/orange
         cool_rgb = (180, 220, 255)  # ~7000K - cool/blue-white
-        
+
         # Normalize to 0-1 range
         k_min = self._min_color_temp_kelvin
         k_max = self._max_color_temp_kelvin
         t = (value - k_min) / (k_max - k_min) if k_max > k_min else 1.0
-        
+
         # Linear interpolation
         r = int(warm_rgb[0] + (cool_rgb[0] - warm_rgb[0]) * t)
         g = int(warm_rgb[1] + (cool_rgb[1] - warm_rgb[1]) * t)
         b = int(warm_rgb[2] + (cool_rgb[2] - warm_rgb[2]) * t)
-        
+
         # Apply brightness scaling
         scale = brightness / 255.0
         r = int(r * scale)
         g = int(g * scale)
         b = int(b * scale)
-        
+
         LOGGER.debug("RGB emulation for %dK: RGB(%d, %d, %d) at brightness %d", value, r, g, b, brightness)
         await self.set_color((r, g, b))
 
     @retry_bluetooth_connection_error
-    async def set_color(self, rgb: Tuple[int, int, int]):
+    async def set_color(self, rgb: tuple[int, int, int]):
         r, g, b = rgb
         rr, gg, bb = self._apply_rgb_gains(int(r), int(g), int(b))
         await self._write([0x7e, 0x00, 0x05, 0x03, rr, gg, bb, 0x00, 0xef])
@@ -749,13 +750,13 @@ class BLEDOMInstance:
         cache_dir = config_dir / "custom_components" / "elkbledom" / ".cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir / "query_commands.json"
-    
+
     def _load_working_query_cmd(self) -> bool:
         """Load previously detected working query command."""
         try:
             cache_file = self._get_query_cache_file()
             if cache_file.exists():
-                with open(cache_file, 'r') as f:
+                with open(cache_file) as f:
                     cache = json.load(f)
                     device_key = f"{self.name}_{self._model}"
                     if device_key in cache:
@@ -766,16 +767,16 @@ class BLEDOMInstance:
         except Exception as e:
             LOGGER.debug("%s: Could not load query cache: %s", self.name, e)
         return False
-    
+
     def _save_working_query_cmd(self, cmd: list, description: str) -> None:
         """Save working query command to cache."""
         try:
             cache_file = self._get_query_cache_file()
             cache = {}
             if cache_file.exists():
-                with open(cache_file, 'r') as f:
+                with open(cache_file) as f:
                     cache = json.load(f)
-            
+
             device_key = f"{self.name}_{self._model}"
             cache[device_key] = {
                 "command": cmd,
@@ -783,19 +784,19 @@ class BLEDOMInstance:
                 "device_name": self.name,
                 "model": self._model
             }
-            
+
             with open(cache_file, 'w') as f:
                 json.dump(cache, f, indent=2)
-            
+
             LOGGER.info("%s: Saved working query command: %s", self.name, description)
         except Exception as e:
             LOGGER.warning("%s: Could not save query cache: %s", self.name, e)
-    
+
     async def query_state(self):
         """Query device state by testing multiple commands and saving the one that works."""
         if not self._client or not self._client.is_connected:
             return
-        
+
         # If we already know the working command, use it
         if self._working_query_cmd:
             try:
@@ -806,11 +807,11 @@ class BLEDOMInstance:
             except Exception as e:
                 LOGGER.debug("%s: Error with saved query: %s", self.name, e)
                 return
-        
+
         # Detection already attempted
         if self._query_detection_done:
             return
-        
+
         # Try to load from cache first
         if self._load_working_query_cmd():
             self._query_detection_done = True
@@ -821,31 +822,31 @@ class BLEDOMInstance:
             except Exception as e:
                 LOGGER.debug("%s: Cached command failed: %s", self.name, e)
             return
-        
+
         # Auto-detection: try each command and see which gets a response
-        LOGGER.info("%s: Auto-detecting working query command (testing %d commands)...", 
+        LOGGER.info("%s: Auto-detecting working query command (testing %d commands)...",
                     self.name, len(QUERY_COMMANDS))
-        
+
         for cmd, description in QUERY_COMMANDS:
             try:
                 self._notification_received = False
-                LOGGER.debug("%s: Testing: %s -> %s", self.name, description, 
+                LOGGER.debug("%s: Testing: %s -> %s", self.name, description,
                            ' '.join(f'{x:02x}' for x in cmd))
-                
+
                 await self._write_while_connected(cmd)
                 await asyncio.sleep(0.4)  # Wait for response
-                
+
                 if self._notification_received:
                     LOGGER.info("%s: ✓ Found working command: %s", self.name, description)
                     self._working_query_cmd = cmd
                     self._save_working_query_cmd(cmd, description)
                     self._query_detection_done = True
                     return
-                    
+
             except Exception as e:
                 LOGGER.debug("%s: Command failed: %s - %s", self.name, description, e)
                 continue
-        
+
         LOGGER.info("%s: No query command found (device may not support state queries)", self.name)
         self._query_detection_done = True
 
@@ -862,13 +863,13 @@ class BLEDOMInstance:
                 self._brightness = 255
 
             self._device_data.update_device()
-            
+
         except Exception as error:
             self._is_on = False
             LOGGER.error("Error getting status: %s", error)
             track = traceback.format_exc()
             LOGGER.debug(track)
-        
+
     async def _ensure_connected(self) -> None:
         """Ensure connection to device is established."""
         if self._connect_lock.locked():
@@ -896,23 +897,23 @@ class BLEDOMInstance:
                         cached_services=self._cached_services,
                         ble_device_callback=lambda: self._device,
                     )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 LOGGER.error("%s: Connection attempt timed out; RSSI: %s", self.name, self.rssi)
                 return
 
             LOGGER.debug("%s: Connected; RSSI: %s", self.name, self.rssi)
-            
+
             resolved = self._resolve_characteristics(client.services)
             if not resolved:
                 # Try to handle services failing to load
-                try:    
+                try:
                     resolved = self._resolve_characteristics(await client.get_services())
                     self._cached_services = client.get_services() if resolved else None
-                except (AttributeError) as error:
+                except (AttributeError):
                     LOGGER.warning("%s: Could not resolve characteristics from services; RSSI: %s", self.name, self.rssi)
             else:
                 self._cached_services = client.services if resolved else None
-            
+
             if not resolved:
                 await client.clear_cache()
                 await client.disconnect()
@@ -975,12 +976,12 @@ class BLEDOMInstance:
         """Handle notification responses."""
         self._notification_received = True  # Mark that we got a response
         LOGGER.info("%s: ✓ Notification received (%d bytes): %s", self.name, len(data), ' '.join(f'{x:02x}' for x in data))
-        
+
         # Parse notification data if available
         if len(data) >= 9 and data[0] == 0x7e and data[8] == 0xef:
             # Valid response packet
             cmd_type = data[2]
-            
+
             # Status response (0x01)
             if cmd_type == 0x01:
                 # Power state might be in data[3]
@@ -991,47 +992,47 @@ class BLEDOMInstance:
                 elif power_state in [0x24, 0x00]:
                     self._is_on = False
                     LOGGER.debug("%s: Parsed power state: OFF", self.name)
-                
+
                 # Try to parse RGB color if available
                 if len(data) >= 8:
                     r, g, b = data[4], data[5], data[6]
                     if r != 0xff or g != 0xff or b != 0xff:  # Not default/invalid values
                         self._rgb_color = (r, g, b)
                         LOGGER.debug("%s: Parsed RGB color: (%d, %d, %d)", self.name, r, g, b)
-                
+
                 # Brightness might be in data[7]
                 if len(data) >= 8 and data[7] != 0xff:
                     brightness_percent = data[7]
                     self._brightness = int(brightness_percent * 255 / 100)
                     LOGGER.debug("%s: Parsed brightness: %d%%", self.name, brightness_percent)
-        
+
         return
 
     def _resolve_characteristics(self, services: BleakGATTServiceCollection) -> bool:
         """Resolve characteristics."""
         if not services:
             LOGGER.debug("%s: No services provided to resolve characteristics, dont should works", self.name)
-        
+
         # Log all available characteristics for debugging
         LOGGER.debug("%s: Available services and characteristics:", self.name)
         for service in services:
             LOGGER.debug("%s: Service %s", self.name, service.uuid)
             for char in service.characteristics:
                 LOGGER.debug("%s:   Characteristic %s (properties: %s)", self.name, char.uuid, char.properties)
-        
+
         # Get unique UUIDs from MODEL_DB
         read_uuids, write_uuids = get_all_characteristic_uuids()
-        
+
         # Try to find read characteristic
         for characteristic in read_uuids:
             if char := services.get_characteristic(characteristic):
                 self._read_uuid = char.uuid
                 LOGGER.debug("%s: Found read UUID: %s with handle %s", self.name, self._read_uuid, char.handle if hasattr(char, 'handle') else 'Unknown')
                 break
-        
+
         if not self._read_uuid:
             LOGGER.warning("%s: Could not find any read characteristic from: %s", self.name, read_uuids)
-        
+
         # Try to find write characteristic
         for characteristic in write_uuids:
             if char := services.get_characteristic(characteristic):
@@ -1050,10 +1051,10 @@ class BLEDOMInstance:
                     self._max_color_temp_kelvin = config.max_color_temp_k
                     self._min_color_temp_kelvin = config.min_color_temp_k
                 break
-        
+
         if not self._write_uuid:
             LOGGER.error("%s: Could not find any write characteristic from: %s", self.name, write_uuids)
-        
+
         return bool(self._read_uuid and self._write_uuid)
 
     def _reset_disconnect_timer(self) -> None:

@@ -1,30 +1,30 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
+
 import voluptuous as vol
-from typing import Any, Optional, Tuple
-
-from .elkbledom import BLEDOMInstance
-from .coordinator import BLEDOMCoordinator
-from .const import DOMAIN, EFFECTS, EFFECTS_list, EFFECT_LABEL_TO_NAME
-
-from homeassistant.const import CONF_MAC
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.components.light import (
-    PLATFORM_SCHEMA,
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_EFFECT,
     ATTR_RGB_COLOR,
+    PLATFORM_SCHEMA,
     ColorMode,
     LightEntity,
     LightEntityFeature,
 )
-from homeassistant.util.color import (match_max_scale)
+from homeassistant.const import CONF_MAC
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry
+from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util.color import match_max_scale
+
+from .const import DOMAIN, EFFECT_LABEL_TO_NAME, EFFECTS, EFFECTS_list
+from .coordinator import BLEDOMCoordinator
+from .elkbledom import BLEDOMInstance
 
 PARALLEL_UPDATES = 0  # fix entity_platform parallel_updates Semaphore
 
@@ -56,20 +56,20 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
 
     @property
     def available(self):
-        return self._instance.is_on != None
+        return self._instance.is_on is not None
 
     @property
     def brightness(self):
         return self._instance.brightness
 
     @property
-    def is_on(self) -> Optional[bool]:
+    def is_on(self) -> bool | None:
         return self._instance.is_on
 
     @property
     def color_temp_kelvin(self):
         return self._instance.color_temp_kelvin
-    
+
     @property
     def max_color_temp_kelvin(self):
         return self._instance.max_color_temp_kelvin
@@ -121,29 +121,29 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
     async def async_added_to_hass(self) -> None:
         """Restore previous state when entity is added to hass."""
         await super().async_added_to_hass()
-        
+
         # Restore the last known state
         if (last_state := await self.async_get_last_state()) is not None:
             LOGGER.debug(f"Restoring previous state for {self.name}: {last_state.state}")
-            
+
             # Restore on/off state
             if last_state.state == "on":
                 self._instance._is_on = True
-                LOGGER.debug(f"Restored state: ON")
+                LOGGER.debug("Restored state: ON")
             elif last_state.state == "off":
                 self._instance._is_on = False
-                LOGGER.debug(f"Restored state: OFF")
+                LOGGER.debug("Restored state: OFF")
             elif last_state.state == "unavailable":
                 # If previous state was unavailable, assume device is off but available
                 # This prevents the entity from staying unavailable after restart
                 self._instance._is_on = False
-                LOGGER.debug(f"Previous state was unavailable, setting to OFF")
-            
+                LOGGER.debug("Previous state was unavailable, setting to OFF")
+
             # Restore brightness
             if ATTR_BRIGHTNESS in last_state.attributes:
                 self._instance._brightness = last_state.attributes[ATTR_BRIGHTNESS]
                 LOGGER.debug(f"Restored brightness: {self._instance._brightness}")
-            
+
             # Restore RGB color
             if ATTR_RGB_COLOR in last_state.attributes and last_state.attributes[ATTR_RGB_COLOR] is not None:
                 try:
@@ -152,7 +152,7 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
                     LOGGER.debug(f"Restored RGB color: {self._instance._rgb_color}")
                 except (TypeError, ValueError) as e:
                     LOGGER.warning(f"Invalid RGB color data, skipping: {e}")
-            
+
             # Restore color temperature
             elif ATTR_COLOR_TEMP_KELVIN in last_state.attributes and last_state.attributes[ATTR_COLOR_TEMP_KELVIN] is not None:
                 try:
@@ -161,12 +161,12 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
                     LOGGER.debug(f"Restored color temp: {self._instance._color_temp_kelvin}K")
                 except (TypeError, ValueError) as e:
                     LOGGER.warning(f"Invalid color temperature data, skipping: {e}")
-            
+
             # Default to COLOR_TEMP if no color mode was restored
             else:
                 self._attr_color_mode = ColorMode.COLOR_TEMP
                 LOGGER.debug("Defaulting color mode: COLOR_TEMP")
-            
+
             # Restore effect
             if ATTR_EFFECT in last_state.attributes:
                 self._attr_effect = last_state.attributes[ATTR_EFFECT]
@@ -175,7 +175,7 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
                 if effect_name in EFFECTS:
                     self._instance._effect = EFFECTS[effect_name].value
                 LOGGER.debug(f"Restored effect: {self._attr_effect}")
-            
+
             # Restore effect speed from extra attributes
             if "effect_speed" in last_state.attributes:
                 try:
@@ -190,7 +190,7 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
             self._instance._brightness = 255
             self._attr_color_mode = ColorMode.WHITE
 
-    def _transform_color_brightness(self, color: Tuple[int, int, int], set_brightness: int):
+    def _transform_color_brightness(self, color: tuple[int, int, int], set_brightness: int):
         rgb = match_max_scale((255,), color)
         res = tuple(color * set_brightness // 255 for color in rgb)
         return res
@@ -204,8 +204,8 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
                 self._attr_color_mode = ColorMode.COLOR_TEMP
                 self._attr_effect = None
                 await self._instance.set_color(self._transform_color_brightness((255, 255, 255), 250))
-        
-        if ATTR_BRIGHTNESS in kwargs and kwargs[ATTR_BRIGHTNESS] != self.brightness and self.rgb_color != None:
+
+        if ATTR_BRIGHTNESS in kwargs and kwargs[ATTR_BRIGHTNESS] != self.brightness and self.rgb_color is not None:
             await self._instance.set_brightness(kwargs[ATTR_BRIGHTNESS])
 
         if ATTR_COLOR_TEMP_KELVIN in kwargs:

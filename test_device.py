@@ -3,6 +3,7 @@
 
 import asyncio
 import colorsys
+
 from bleak import BleakClient
 
 DEVICE_MAC = "BE:27:EB:01:83:20"
@@ -340,14 +341,14 @@ async def rgb_calibration_menu(client: BleakClient) -> None:
 
 async def main():
     print(f"Connecting to {DEVICE_MAC}...")
-    
+
     async with BleakClient(DEVICE_MAC) as client:
         print(f"Connected: {client.is_connected}")
-        
+
         # Enable notifications
         await client.start_notify(READ_UUID, notification_handler)
         print("Notifications enabled\n")
-        
+
         while True:
             print("\n=== ELK-BLEDDM Test Menu ===")
             print("1. Turn ON")
@@ -362,15 +363,15 @@ async def main():
             print("8. Send custom hex command")
             print("9. Probe all effects (0x80-0x9F)")
             print("0. Exit")
-            
+
             choice = input("\nChoice: ").strip()
-            
+
             if choice == "1":
                 await send_cmd(client, [0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef], "ON")
-                
+
             elif choice == "2":
                 await send_cmd(client, [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef], "OFF")
-                
+
             elif choice == "3":
                 r = int(input("Red (0-255): "))
                 g = int(input("Green (0-255): "))
@@ -382,37 +383,37 @@ async def main():
 
             elif choice.lower() == "3c":
                 await color_mixing_menu(client)
-                
+
             elif choice == "4":
                 val = int(input("Brightness (0-100): "))
                 await send_cmd(client, [0x7e, 0x04, 0x01, val, 0xff, 0x00, 0xff, 0x00, 0xef], f"Brightness {val}%")
-                
+
             elif choice == "5":
                 val = int(input("White intensity (0-100): "))
                 await send_cmd(client, [0x7e, 0x00, 0x01, val, 0x00, 0x00, 0x00, 0x00, 0xef], f"White {val}%")
-                
+
             elif choice == "6":
                 print("Effects: 0x80=jump RGB, 0x81=jump RGBYCMW, 0x82=crossfade RGB...")
                 val = input("Effect hex (e.g. 80): ")
                 effect = int(val, 16)
                 await send_cmd(client, [0x7e, 0x00, 0x03, effect, 0x03, 0x00, 0x00, 0x00, 0xef], f"Effect 0x{effect:02x}")
-                
+
             elif choice == "7":
                 val = int(input("Speed (0-255, 0=fast, 255=slow): "))
                 await send_cmd(client, [0x7e, 0x00, 0x02, val, 0x00, 0x00, 0x00, 0x00, 0xef], f"Speed {val}")
-                
+
             elif choice == "8":
                 hex_str = input("Hex command (e.g. 7e0004f00001ff00ef): ")
                 cmd = bytes.fromhex(hex_str.replace(" ", ""))
                 await send_cmd(client, list(cmd), "Custom")
-                
+
             elif choice == "9":
                 print("Probing effects 0x80-0x9F (press Ctrl+C to stop)...")
                 for effect in range(0x80, 0xA0):
                     print(f"\nEffect 0x{effect:02x}:")
                     await send_cmd(client, [0x7e, 0x00, 0x03, effect, 0x03, 0x00, 0x00, 0x00, 0xef])
                     input("Press Enter for next effect...")
-                    
+
             elif choice == "0":
                 print("Exiting...")
                 break

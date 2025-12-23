@@ -1,22 +1,22 @@
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, Event
-from homeassistant.const import CONF_MAC, EVENT_HOMEASSISTANT_STOP
-from homeassistant.const import Platform
+from homeassistant.const import CONF_MAC, EVENT_HOMEASSISTANT_STOP, Platform
+from homeassistant.core import Event, HomeAssistant
 
 from .const import (
-    DOMAIN,
-    CONF_RESET,
-    CONF_DELAY,
-    CONF_RGB_GAIN_R,
-    CONF_RGB_GAIN_G,
-    CONF_RGB_GAIN_B,
     CONF_BRIGHTNESS_MODE,
+    CONF_DELAY,
+    CONF_RESET,
+    CONF_RGB_GAIN_B,
+    CONF_RGB_GAIN_G,
+    CONF_RGB_GAIN_R,
+    DOMAIN,
 )
-from .elkbledom import BLEDOMInstance
 from .coordinator import BLEDOMCoordinator
-import logging
+from .elkbledom import BLEDOMInstance
 
 LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
@@ -42,15 +42,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     instance = BLEDOMInstance(mac, reset, delay, hass)
     instance.set_rgb_gains(rgb_gain_r, rgb_gain_g, rgb_gain_b)
     instance.brightness_mode = brightness_mode
-    
+
     coordinator = BLEDOMCoordinator(hass, instance)
     await coordinator.async_config_entry_first_refresh()
-    
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "instance": instance,
         "coordinator": coordinator,
     }
-   
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
@@ -61,9 +61,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_stop)
     )
-    
+
     return True
-   
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

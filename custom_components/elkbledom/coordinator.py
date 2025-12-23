@@ -1,11 +1,11 @@
 """DataUpdateCoordinator for elkbledom integration."""
 from __future__ import annotations
 
-from datetime import timedelta
 import logging
+from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .elkbledom import BLEDOMInstance
 

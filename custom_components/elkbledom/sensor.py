@@ -1,23 +1,23 @@
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.sensor import (
-    SensorEntity,
     SensorDeviceClass,
+    SensorEntity,
     SensorStateClass,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT
 from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers import device_registry
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .elkbledom import BLEDOMInstance
-from .coordinator import BLEDOMCoordinator
 from .const import DOMAIN
-
-import logging
+from .coordinator import BLEDOMCoordinator
+from .elkbledom import BLEDOMInstance
 
 LOG = logging.getLogger(__name__)
 

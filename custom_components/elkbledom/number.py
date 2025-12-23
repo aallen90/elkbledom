@@ -1,25 +1,22 @@
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.number import (
     NumberEntity,
-    NumberEntityDescription,
     NumberMode,
 )
-
-from .elkbledom import BLEDOMInstance
-from .coordinator import BLEDOMCoordinator
-from .const import DOMAIN
-
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers import device_registry
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
 
-
-import logging
+from .const import DOMAIN
+from .coordinator import BLEDOMCoordinator
+from .elkbledom import BLEDOMInstance
 
 LOG = logging.getLogger(__name__)
 
@@ -86,7 +83,7 @@ class BLEDOMEffectSpeed(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, Num
     async def async_added_to_hass(self) -> None:
         """Restore previous state when entity is added to hass."""
         await super().async_added_to_hass()
-        
+
         # Restore the last known effect speed
         if (last_state := await self.async_get_last_state()) is not None:
             try:
@@ -141,7 +138,7 @@ class BLEDOMMicSensitivity(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, 
     async def async_added_to_hass(self) -> None:
         """Restore previous state when entity is added to hass."""
         await super().async_added_to_hass()
-        
+
         # Restore the last known mic sensitivity
         if (last_state := await self.async_get_last_state()) is not None:
             try:
