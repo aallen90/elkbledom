@@ -386,14 +386,27 @@ class BLEDOMInstance:
         self._detect_model()
 
         # Apply default RGB gains from MODEL_DB if defined
-        model_config = MODEL_DB.get(self._model)
+        model_config = MODEL_DB.get(self._model) if self._model else None
         if model_config and model_config.default_rgb_gains != (1.0, 1.0, 1.0):
             r, g, b = model_config.default_rgb_gains
             self.set_rgb_gains(r, g, b)
-        LOGGER.debug('Model information for device %s : ModelNo %s, Turn on cmd %s, Turn off cmd %s, White cmd %s, rssi %s', self._device.name, self._model, self._turn_on_cmd, self._turn_off_cmd, self._white_cmd, self.rssi)
+        LOGGER.debug('Model information for device %s : ModelNo %s, Turn on cmd %s, Turn off cmd %s, White cmd %s, rssi %s', self.name, self._model, self._turn_on_cmd, self._turn_off_cmd, self._white_cmd, self.rssi)
 
     def _detect_model(self):
         """Detect the LED model from the device name and load its configuration."""
+        if self._device is None or self._device.name is None:
+            LOGGER.warning("Device or device name is None, using default configuration")
+            first_config = next(iter(MODEL_DB.values()))
+            self._model = first_config.name
+            self._turn_on_cmd = list(first_config.turn_on_cmd)
+            self._turn_off_cmd = list(first_config.turn_off_cmd)
+            self._white_cmd = list(first_config.white_cmd)
+            self._effect_speed_cmd = list(first_config.effect_speed_cmd)
+            self._effect_cmd = list(first_config.effect_cmd)
+            self._color_temp_cmd = list(first_config.color_temp_cmd)
+            self._max_color_temp_kelvin = first_config.max_color_temp_k
+            self._min_color_temp_kelvin = first_config.min_color_temp_k
+            return None
         device_name_lower = self._device.name.lower()
 
         for name, config in MODEL_DB.items():
@@ -410,7 +423,7 @@ class BLEDOMInstance:
                 return name
 
         # Fallback to first model if no match (shouldn't happen if discovery is working)
-        LOGGER.warning("Unknown device model '%s', using default configuration", self._device.name)
+        LOGGER.warning("Unknown device model '%s', using default configuration", self.name)
         first_config = next(iter(MODEL_DB.values()))
         self._model = first_config.name
         self._turn_on_cmd = list(first_config.turn_on_cmd)
@@ -462,6 +475,8 @@ class BLEDOMInstance:
             self._brightness_mode = "auto"
 
     def get_white_cmd(self, intensity: int):
+        if self._white_cmd is None:
+            return [0x7e, 0x00, 0x01, int(intensity*100/255), 0x00, 0x00, 0x00, 0x00, 0xef]
         white_cmd = self._white_cmd.copy()
         bb_index = white_cmd.index(0xbb) if 0xbb in white_cmd else -1
         if bb_index >= 0:
@@ -469,6 +484,8 @@ class BLEDOMInstance:
         return white_cmd
 
     def get_effect_speed_cmd(self, value: int):
+        if self._effect_speed_cmd is None:
+            return [0x7e, 0x00, 0x02, int(value), 0x00, 0x00, 0x00, 0x00, 0xef]
         effect_speed_cmd = self._effect_speed_cmd.copy()
         bb_index = effect_speed_cmd.index(0xbb) if 0xbb in effect_speed_cmd else -1
         if bb_index >= 0:
@@ -476,6 +493,8 @@ class BLEDOMInstance:
         return effect_speed_cmd
 
     def get_effect_cmd(self, value: int):
+        if self._effect_cmd is None:
+            return [0x7e, 0x00, 0x03, int(value), 0x03, 0x00, 0x00, 0x00, 0xef]
         effect_cmd = self._effect_cmd.copy()
         bb_index = effect_cmd.index(0xbb) if 0xbb in effect_cmd else -1
         if bb_index >= 0:
@@ -483,6 +502,8 @@ class BLEDOMInstance:
         return effect_cmd
 
     def get_color_temp_cmd(self, warm: int, cold: int):
+        if self._color_temp_cmd is None:
+            return [0x7e, 0x00, 0x04, int(warm), int(cold), 0x00, 0x00, 0x00, 0xef]
         color_temp_cmd = self._color_temp_cmd.copy()
         # Find all 0xbb positions
         bb_indices = [i for i, v in enumerate(color_temp_cmd) if v == 0xbb]
@@ -491,14 +512,17 @@ class BLEDOMInstance:
             color_temp_cmd[bb_indices[1]] = int(cold)
         return color_temp_cmd
 
-    async def _write(self, data: bytearray):
+    async def _write(self, data: list[int] | bytearray):
         """Send command to device and read response."""
         await self._ensure_connected()
         await self._write_while_connected(data)
 
-    async def _write_while_connected(self, data: bytearray):
+    async def _write_while_connected(self, data: list[int] | bytearray):
         LOGGER.debug(''.join(format(x, ' 03x') for x in data))
-        await self._client.write_gatt_char(self._write_uuid, data, False)
+        if self._client is None:
+            raise RuntimeError("BLE client not connected")
+        write_data = bytearray(data) if isinstance(data, list) else data
+        await self._client.write_gatt_char(self._write_uuid, write_data, False)
 
     @property
     def address(self):
@@ -510,7 +534,7 @@ class BLEDOMInstance:
 
     @property
     def name(self):
-        return self._device.name
+        return self._device.name if self._device else "Unknown"
 
     @property
     def rssi(self):
@@ -579,10 +603,12 @@ class BLEDOMInstance:
         For RGB-only devices, emulates color temperature using RGB values.
         """
         self._color_temp_kelvin = value
-        if value < self._min_color_temp_kelvin:
-            value = self._min_color_temp_kelvin
-        if value > self._max_color_temp_kelvin:
-            value = self._max_color_temp_kelvin
+        min_temp = self._min_color_temp_kelvin if self._min_color_temp_kelvin is not None else 1800
+        max_temp = self._max_color_temp_kelvin if self._max_color_temp_kelvin is not None else 7000
+        if value < min_temp:
+            value = min_temp
+        if value > max_temp:
+            value = max_temp
 
         # Ensure brightness is not None before using it
         if brightness is None:
@@ -592,8 +618,8 @@ class BLEDOMInstance:
         # Try native CCT command first if device has color temp command
         if self._color_temp_cmd is not None:
             try:
-                color_temp_percent = int(((value - self._min_color_temp_kelvin) * 100) /
-                                        (self._max_color_temp_kelvin - self._min_color_temp_kelvin))
+                color_temp_percent = int(((value - min_temp) * 100) /
+                                        (max_temp - min_temp)) if max_temp > min_temp else 50
                 brightness_percent = int(brightness * 100 / 255)
                 color_temp_cmd = self.get_color_temp_cmd(color_temp_percent, brightness_percent)
                 await self._write(color_temp_cmd)
@@ -610,8 +636,8 @@ class BLEDOMInstance:
         cool_rgb = (180, 220, 255)  # ~7000K - cool/blue-white
 
         # Normalize to 0-1 range
-        k_min = self._min_color_temp_kelvin
-        k_max = self._max_color_temp_kelvin
+        k_min = min_temp
+        k_max = max_temp
         t = (value - k_min) / (k_max - k_min) if k_max > k_min else 1.0
 
         # Linear interpolation
@@ -696,6 +722,9 @@ class BLEDOMInstance:
 
     @retry_bluetooth_connection_error
     async def turn_on(self):
+        if self._turn_on_cmd is None:
+            LOGGER.error("%s: Turn on command not configured", self.name)
+            return
         # ELK-BLEDDM: detect which variant works on first call
         if self._model == "ELK-BLEDDM" and not self._bleddm_variant_checked:
             self._bleddm_variant_checked = True
@@ -705,8 +734,10 @@ class BLEDOMInstance:
             if not self._notification_received:
                 LOGGER.debug("%s: Primary cmd no response, trying alternate", self.name)
                 bleddm_config = MODEL_DB["ELK-BLEDDM"]
-                self._turn_on_cmd = list(bleddm_config.alt_turn_on_cmd)
-                self._turn_off_cmd = list(bleddm_config.alt_turn_off_cmd)
+                if bleddm_config.alt_turn_on_cmd is not None:
+                    self._turn_on_cmd = list(bleddm_config.alt_turn_on_cmd)
+                if bleddm_config.alt_turn_off_cmd is not None:
+                    self._turn_off_cmd = list(bleddm_config.alt_turn_off_cmd)
                 await self._write(self._turn_on_cmd)
         else:
             await self._write(self._turn_on_cmd)
@@ -714,6 +745,9 @@ class BLEDOMInstance:
 
     @retry_bluetooth_connection_error
     async def turn_off(self):
+        if self._turn_off_cmd is None:
+            LOGGER.error("%s: Turn off command not configured", self.name)
+            return
         await self._write(self._turn_off_cmd)
         self._is_on = False
 
@@ -735,9 +769,9 @@ class BLEDOMInstance:
 
     @retry_bluetooth_connection_error
     async def sync_time(self):
-        date=datetime.date.today()
-        year, week_num, day_of_week = date.isocalendar()
-        await self._write([0x7e, 0x00, 0x83, datetime.datetime.now().strftime('%H'), datetime.datetime.now().strftime('%M'), datetime.datetime.now().strftime('%S'), day_of_week, 0x00, 0xef])
+        now = datetime.now()
+        day_of_week = now.isoweekday()
+        await self._write([0x7e, 0x00, 0x83, int(now.strftime('%H')), int(now.strftime('%M')), int(now.strftime('%S')), day_of_week, 0x00, 0xef])
 
     @retry_bluetooth_connection_error
     async def custom_time(self, hour: int, minute: int, second: int, day_of_week: int):
@@ -817,8 +851,9 @@ class BLEDOMInstance:
             self._query_detection_done = True
             # Test it
             try:
-                await self._write_while_connected(self._working_query_cmd)
-                await asyncio.sleep(0.2)
+                if self._working_query_cmd is not None:
+                    await self._write_while_connected(self._working_query_cmd)
+                    await asyncio.sleep(0.2)
             except Exception as e:
                 LOGGER.debug("%s: Cached command failed: %s", self.name, e)
             return
@@ -862,7 +897,8 @@ class BLEDOMInstance:
                 self._color_temp_kelvin = 5000
                 self._brightness = 255
 
-            self._device_data.update_device()
+            if self._device_data is not None:
+                self._device_data.update_device()
 
         except Exception as error:
             self._is_on = False
@@ -930,7 +966,8 @@ class BLEDOMInstance:
 
             # Enable notifications (simple method, no manual CCCD)
             try:
-                if not self._device.name.lower().startswith("melk") and not self._device.name.lower().startswith("ledble"):
+                device_name_lower = self._device.name.lower() if self._device and self._device.name else ""
+                if not device_name_lower.startswith("melk") and not device_name_lower.startswith("ledble"):
                     if self._read_uuid is not None and self._read_uuid != "None":
                         LOGGER.debug("%s: Enabling notifications; RSSI: %s", self.name, self.rssi)
                         await client.start_notify(self._read_uuid, self._notification_handler)
@@ -942,7 +979,8 @@ class BLEDOMInstance:
 
     async def _login_command(self):
         try:
-            if self._device.name.lower().startswith("modelx"):
+            device_name_lower = self._device.name.lower() if self._device and self._device.name else ""
+            if device_name_lower.startswith("modelx"):
                 LOGGER.debug("Executing login command for: %s; RSSI: %s", self.name, self.rssi)
                 await self._write([0x7e, 0x07, 0x83])
                 await asyncio.sleep(1)
@@ -951,14 +989,15 @@ class BLEDOMInstance:
             else:
                 LOGGER.debug("login command for: %s not needed; RSSI: %s", self.name, self.rssi)
 
-        except (Exception) as error:
+        except Exception as error:
             LOGGER.error("Error login command: %s", error)
             track = traceback.format_exc()
             LOGGER.debug(track)
 
     async def _init_command(self):
         try:
-            if self._device.name.lower().startswith("melk"):
+            device_name_lower = self._device.name.lower() if self._device and self._device.name else ""
+            if device_name_lower.startswith("melk"):
                 LOGGER.debug("Executing init command for: %s; RSSI: %s", self.name, self.rssi)
                 await self._write([0x7e, 0x07, 0x83])
                 await asyncio.sleep(1)
@@ -967,7 +1006,7 @@ class BLEDOMInstance:
             else:
                 LOGGER.debug("init command for: %s not needed; RSSI: %s", self.name, self.rssi)
 
-        except (Exception) as error:
+        except Exception as error:
             LOGGER.error("Error login command: %s", error)
             track = traceback.format_exc()
             LOGGER.debug(track)
@@ -1105,7 +1144,8 @@ class BLEDOMInstance:
             self._read_uuid = None
             if client and client.is_connected:
                 try:
-                    if not self._device.name.lower().startswith("melk") and not self._device.name.lower().startswith("ledble"):
+                    device_name_lower = self._device.name.lower() if self._device and self._device.name else ""
+                    if not device_name_lower.startswith("melk") and not device_name_lower.startswith("ledble"):
                         await client.stop_notify(read_char)
                     await client.disconnect()
                 except Exception as e:

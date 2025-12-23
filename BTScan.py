@@ -53,7 +53,7 @@ class Discovery:
     def getDevices(self, address = None):
         if address is None:
             for dev in self.devices:
-                print("Device %s (%s), RSSI=%d dB" % (dev.addr, dev.addrType, dev.rssi))
+                print(f"Device {dev.addr} ({dev.addrType}), RSSI={dev.rssi} dB")
                 utdv = UtopicDevice(dev)
                 if utdv.getDevice() is not None:
                     self.utopicdevice.append(utdv)
@@ -68,8 +68,8 @@ class UtopicDevice:
         self.writeChar = None
         self.readChar = None
         self.notChar = None
-        for (adtype, desc, value) in device.getScanData():
-            print("  %s = %s" % (desc, value))
+        for (_adtype, desc, value) in device.getScanData():
+            print(f"  {desc} = {value}")
             if value == BleServicesAndChracteristicsChars.DEVICE_NAME_CONTENT:
                 self.utopicdevice = self
             if value in BleServicesAndChracteristicsChars.BLE_SERVICES:
@@ -162,7 +162,7 @@ class BLEMagic(DefaultDelegate):
                             #print(state)
                             utopicdevice.setReadCharact(desc.handle)
             subscribe_bytes = b'\x01\x00'
-            if utopicdevice.getReadCharact() is not None and utopicdevice.getWriteCharact() is not None:
+            if utopicdevice.getReadCharact() is not None and utopicdevice.getWriteCharact() is not None and self.periph is not None:
                 response = self.periph.writeCharacteristic(utopicdevice.getNotifyCharact(), subscribe_bytes, withResponse=True)
                 print(response)
                 # now that we're subscribed for notifications, waiting for TX/RX...
@@ -177,6 +177,7 @@ class BLEMagic(DefaultDelegate):
                 print("not read")
             self.utopicdevices.append(utopicdevice)
 
+    @staticmethod
     def kv2dict(kvstr, sep=";"):
         result = {}
         for x in kvstr.split(sep, 50):
@@ -203,7 +204,6 @@ class BLEMagic(DefaultDelegate):
         if type in (OperationType.GET_KEY, OperationType.DISCONNECT, OperationType.GET_CHECK_IN_OUT_TIMES, OperationType.GET_AUTO_LOCK_DAY_TIMES, OperationType.LEARN_SUCCESS):
             return type
         else:
-            utopicKey = self.utopicdevices.getAddress()
             myMacAdress = '22:33:44:55:66:77' #GetMacAdress()
             userKey = ""
             for pos in myMacAdress.split(":"):
