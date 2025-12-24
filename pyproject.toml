@@ -1,6 +1,6 @@
 [project]
 name = "elkbledom"
-version = "1.6.2"
+version = "1.6.3"
 description = "Home Assistant integration for ELK-BLEDOM and compatible Bluetooth LED controllers"
 readme = "README.md"
 license = {text = "Apache-2.0"}
