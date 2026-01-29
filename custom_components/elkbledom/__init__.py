@@ -38,7 +38,7 @@ SET_RGBW_CHANNELS_SCHEMA = vol.Schema({
     vol.Optional("green", default=True): cv.boolean,
     vol.Optional("blue", default=True): cv.boolean,
     vol.Optional("white", default=True): cv.boolean,
-    vol.Optional("mode", default=0): vol.In([0, 1, 2, 3, 4]),  # 0=all, 1=RGB, 2=W, 3=CT, 4=laser
+    vol.Optional("mode", default="0"): vol.In(["0", "1", "2", "3", "4"]),  # 0=all, 1=RGB, 2=W, 3=CT, 4=laser
 })
 
 # Service schemas for scheduler control
@@ -91,7 +91,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         green = call.data.get("green", True)
         blue = call.data.get("blue", True)
         white = call.data.get("white", True)
-        mode = call.data.get("mode", 0)
+        mode = int(call.data.get("mode", "0"))
         
         # Get the instance from entity_id
         # For simplicity, use the instance from this entry
