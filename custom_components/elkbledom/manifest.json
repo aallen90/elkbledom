@@ -5,9 +5,13 @@
       { "local_name": "ELK-BULB2*" },
       { "local_name": "ELK-BULB*" },
       { "local_name": "ELK-BLE*" },
+      { "local_name": "ELK~*" },
+      { "local_name": "ELK_*" },
       { "local_name": "MELK*" },
       { "local_name": "LEDBLE*" },
-      { "local_name": "ELK-LAMPL*" }
+      { "local_name": "ELK-LAMPL*" },
+      { "local_name": "XSL-*" },
+      { "local_name": "LED LIGHT STRIP*" }
     ],
   "codeowners": ["@aallen90"],
   "config_flow": true,

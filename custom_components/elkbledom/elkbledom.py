@@ -142,6 +142,51 @@ MODEL_DB: dict[str, ModelConfig] = {
         effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
         color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
     ),
+    # New devices discovered from Lotus Lantern app analysis
+    "ELK~": ModelConfig(
+        name="ELK~",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
+    ),
+    "ELK_": ModelConfig(
+        name="ELK_",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
+    ),
+    "XSL-": ModelConfig(
+        name="XSL-",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
+    ),
+    "LED LIGHT STRIP": ModelConfig(
+        name="LED LIGHT STRIP",
+        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
+        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
+        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
+        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
+        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
+        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
+        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
+        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
+    ),
 }
 
 
@@ -359,6 +404,17 @@ class BLEDOMInstance:
         self._query_detection_done = False  # Flag to avoid retesting
         self._notification_received = False  # Flag to detect responses
         self._bleddm_variant_checked = False  # ELK-BLEDDM variant detection done
+
+        # Timer state (from device notifications)
+        self._timer_on_hour: int | None = None
+        self._timer_on_minute: int | None = None
+        self._timer_on_days: int | None = None  # Bitmask: bit0=Mon...bit6=Sun, bit7=enabled
+        self._timer_on_enabled: bool | None = None
+        self._timer_off_hour: int | None = None
+        self._timer_off_minute: int | None = None
+        self._timer_off_days: int | None = None
+        self._timer_off_enabled: bool | None = None
+        self._device_time: tuple[int, int, int, int] | None = None  # (hour, min, sec, weekday)
 
         # Per-device RGB calibration gains (applied to set_color RGB writes only)
         self._rgb_gain_r: float = 1.0
@@ -1076,11 +1132,65 @@ class BLEDOMInstance:
         self._notification_received = True  # Mark that we got a response
         LOGGER.info("%s: ✓ Notification received (%d bytes): %s", self.name, len(data), ' '.join(f'{x:02x}' for x in data))
 
-        # Parse notification data if available
-        if len(data) >= 9 and data[0] == 0x7e and data[8] == 0xef:
-            # Valid response packet
-            cmd_type = data[2]
+        # Validate minimum packet structure
+        if len(data) < 3 or data[0] != 0x7e:
+            return
 
+        cmd_type = data[2]
+
+        # Timer response (0x85) - contains both on and off schedules
+        # Format: 7e 09 85 H1 M1 W1 H2 M2 W2
+        # W1/W2: bit0-6 = days (Mon-Sun), bit7 = enabled
+        if cmd_type == 0x85 and len(data) >= 9:
+            self._timer_on_hour = data[3]
+            self._timer_on_minute = data[4]
+            self._timer_on_days = data[5] & 0x7f  # Lower 7 bits = day mask
+            self._timer_on_enabled = bool(data[5] & 0x80)  # Bit 7 = enabled
+            self._timer_off_hour = data[6]
+            self._timer_off_minute = data[7]
+            self._timer_off_days = data[8] & 0x7f
+            self._timer_off_enabled = bool(data[8] & 0x80)
+            LOGGER.info("%s: Timer ON: %02d:%02d days=0x%02x enabled=%s | OFF: %02d:%02d days=0x%02x enabled=%s",
+                        self.name,
+                        self._timer_on_hour, self._timer_on_minute, self._timer_on_days, self._timer_on_enabled,
+                        self._timer_off_hour, self._timer_off_minute, self._timer_off_days, self._timer_off_enabled)
+            return
+
+        # Timer status response (0x82) - single timer confirmation
+        # Format: 7e 08 82 H M S mode days ef
+        if cmd_type == 0x82 and len(data) >= 9 and data[8] == 0xef:
+            hour, minute, second = data[3], data[4], data[5]
+            mode = data[6]  # 0 = on timer, 1 = off timer
+            days_enabled = data[7]
+            days = days_enabled & 0x7f
+            enabled = bool(days_enabled & 0x80)
+            if mode == 0:
+                self._timer_on_hour = hour
+                self._timer_on_minute = minute
+                self._timer_on_days = days
+                self._timer_on_enabled = enabled
+                LOGGER.info("%s: Timer ON confirmed: %02d:%02d:%02d days=0x%02x enabled=%s",
+                            self.name, hour, minute, second, days, enabled)
+            else:
+                self._timer_off_hour = hour
+                self._timer_off_minute = minute
+                self._timer_off_days = days
+                self._timer_off_enabled = enabled
+                LOGGER.info("%s: Timer OFF confirmed: %02d:%02d:%02d days=0x%02x enabled=%s",
+                            self.name, hour, minute, second, days, enabled)
+            return
+
+        # Time sync response (0x83) - device time confirmation
+        # Format: 7e 07 83 H M S wd ff ef
+        if cmd_type == 0x83 and len(data) >= 9:
+            hour, minute, second, weekday = data[3], data[4], data[5], data[6]
+            self._device_time = (hour, minute, second, weekday)
+            LOGGER.info("%s: Device time: %02d:%02d:%02d weekday=%d",
+                        self.name, hour, minute, second, weekday)
+            return
+
+        # Parse standard 9-byte response packet
+        if len(data) >= 9 and data[8] == 0xef:
             # Status response (0x01)
             if cmd_type == 0x01:
                 # Power state might be in data[3]
