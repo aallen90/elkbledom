@@ -59,6 +59,18 @@
         "sensor": {
             "rssi": {
                 "name": "RSSI"
+            },
+            "timer_on": {
+                "name": "Timer On"
+            },
+            "timer_off": {
+                "name": "Timer Off"
+            },
+            "firmware_version": {
+                "name": "Firmware Version"
+            },
+            "connection_state": {
+                "name": "Connection State"
             }
         },
         "button": {
