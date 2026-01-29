@@ -1,0 +1,54 @@
+# Service definitions for ElkBLEDOM integration
+set_rgbw_channels:
+  name: Set RGBW channels
+  description: Control individual RGBW channels on compatible LED devices
+  fields:
+    entity_id:
+      name: Entity
+      description: The light entity to control
+      required: true
+      selector:
+        entity:
+          integration: elkbledom
+          domain: light
+    red:
+      name: Red channel
+      description: Enable red LED channel
+      default: true
+      selector:
+        boolean:
+    green:
+      name: Green channel
+      description: Enable green LED channel
+      default: true
+      selector:
+        boolean:
+    blue:
+      name: Blue channel  
+      description: Enable blue LED channel
+      default: true
+      selector:
+        boolean:
+    white:
+      name: White channel
+      description: Enable white LED channel
+      default: true
+      selector:
+        boolean:
+    mode:
+      name: Light mode
+      description: Operating mode for the device
+      default: 0
+      selector:
+        select:
+          options:
+            - label: "All channels"
+              value: 0
+            - label: "RGB only"
+              value: 1
+            - label: "White only"
+              value: 2
+            - label: "Color temperature"
+              value: 3
+            - label: "Laser (if supported)"
+              value: 4

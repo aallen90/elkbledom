@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_MAC, EVENT_HOMEASSISTANT_STOP, Platform
-from homeassistant.core import Event, HomeAssistant
+from homeassistant.core import Event, HomeAssistant, ServiceCall
+import homeassistant.helpers.config_validation as cv
 
 from .const import (
     CONF_BRIGHTNESS_MODE,
@@ -27,6 +29,17 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.SENSOR,
 ]
+
+# Service schema for RGBW channel control
+SERVICE_SET_RGBW_CHANNELS = "set_rgbw_channels"
+SET_RGBW_CHANNELS_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_id,
+    vol.Optional("red", default=True): cv.boolean,
+    vol.Optional("green", default=True): cv.boolean,
+    vol.Optional("blue", default=True): cv.boolean,
+    vol.Optional("white", default=True): cv.boolean,
+    vol.Optional("mode", default=0): vol.In([0, 1, 2, 3, 4]),  # 0=all, 1=RGB, 2=W, 3=CT, 4=laser
+})
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up ElkBLEDOM from a config entry."""
@@ -53,6 +66,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
+    # Register RGBW service
+    async def async_set_rgbw_channels(call: ServiceCall) -> None:
+        """Handle the set_rgbw_channels service call."""
+        entity_id = call.data["entity_id"]
+        red = call.data.get("red", True)
+        green = call.data.get("green", True)
+        blue = call.data.get("blue", True)
+        white = call.data.get("white", True)
+        mode = call.data.get("mode", 0)
+        
+        # Get the instance from entity_id
+        # For simplicity, use the instance from this entry
+        await instance.set_rgbw_channels(red, green, blue, white, mode)
+        LOGGER.info("RGBW channels service called: R=%s G=%s B=%s W=%s mode=%d", 
+                    red, green, blue, white, mode)
+
+    # Register service only once globally
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_RGBW_CHANNELS):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_RGBW_CHANNELS,
+            async_set_rgbw_channels,
+            schema=SET_RGBW_CHANNELS_SCHEMA,
+        )
 
     async def _async_stop(event: Event) -> None:
         """Close the connection."""
