@@ -41,6 +41,12 @@ SET_RGBW_CHANNELS_SCHEMA = vol.Schema({
     vol.Optional("mode", default="0"): vol.In(["0", "1", "2", "3", "4"]),  # 0=all, 1=RGB, 2=W, 3=CT, 4=laser
 })
 
+# Service for querying timer settings
+SERVICE_QUERY_TIMER = "query_timer"
+QUERY_TIMER_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_id,
+})
+
 # Service schemas for scheduler control
 SERVICE_SET_SCHEDULE_ON = "set_schedule_on"
 SERVICE_SET_SCHEDULE_OFF = "set_schedule_off"
@@ -165,6 +171,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_SET_SCHEDULE_OFF,
             async_set_schedule_off,
             schema=SCHEDULE_SCHEMA,
+        )
+
+    # Register query_timer service
+    async def async_query_timer(call: ServiceCall) -> None:
+        """Handle the query_timer service call."""
+        result = await instance.query_timer()
+        if result:
+            LOGGER.info("Timer query result: ON=%s OFF=%s", 
+                        result.get("timer_on"), result.get("timer_off"))
+        else:
+            LOGGER.warning("Timer query returned no data")
+
+    if not hass.services.has_service(DOMAIN, SERVICE_QUERY_TIMER):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_QUERY_TIMER,
+            async_query_timer,
+            schema=QUERY_TIMER_SCHEMA,
         )
 
     async def _async_stop(event: Event) -> None:

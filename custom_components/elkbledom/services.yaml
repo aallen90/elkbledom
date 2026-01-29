@@ -186,3 +186,16 @@ set_schedule_off:
       default: true
       selector:
         boolean:
+
+query_timer:
+  name: Query timer settings
+  description: Query the current timer/schedule settings from the device. Results are logged and stored in the device instance.
+  fields:
+    entity_id:
+      name: Entity
+      description: The light entity to query
+      required: true
+      selector:
+        entity:
+          integration: elkbledom
+          domain: light

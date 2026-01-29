@@ -644,6 +644,35 @@ class BLEDOMInstance:
     def mic_enabled(self):
         return self._mic_enabled
 
+    @property
+    def timer_on_state(self) -> dict | None:
+        """Return timer on state if known."""
+        if self._timer_on_hour is None:
+            return None
+        return {
+            "hour": self._timer_on_hour,
+            "minute": self._timer_on_minute,
+            "days": self._timer_on_days,
+            "enabled": self._timer_on_enabled,
+        }
+
+    @property
+    def timer_off_state(self) -> dict | None:
+        """Return timer off state if known."""
+        if self._timer_off_hour is None:
+            return None
+        return {
+            "hour": self._timer_off_hour,
+            "minute": self._timer_off_minute,
+            "days": self._timer_off_days,
+            "enabled": self._timer_off_enabled,
+        }
+
+    @property
+    def device_time(self) -> tuple[int, int, int, int] | None:
+        """Return device time (hour, minute, second, weekday) if known."""
+        return self._device_time
+
     @retry_bluetooth_connection_error
     async def set_color_temp(self, value: int):
         if value > 100:
@@ -1000,6 +1029,62 @@ class BLEDOMInstance:
 
         LOGGER.info("%s: No query command found (device may not support state queries)", self.name)
         self._query_detection_done = True
+
+    @retry_bluetooth_connection_error
+    async def query_timer(self) -> dict | None:
+        """Query current timer settings from device.
+
+        Reads the notification characteristic to get timer data.
+        Returns dict with timer info or None if unavailable.
+        """
+        if not self._client or not self._client.is_connected:
+            await self._ensure_connected()
+
+        if not self._read_uuid:
+            LOGGER.warning("%s: No read UUID available for timer query", self.name)
+            return None
+
+        try:
+            # Read directly from the characteristic (like the Android app does)
+            data = await self._client.read_gatt_char(self._read_uuid)
+            LOGGER.info("%s: Timer query response: %s", self.name, ' '.join(f'{x:02x}' for x in data))
+
+            # Parse the response through the notification handler
+            self._notification_handler(None, bytearray(data))
+
+            # Return current timer state
+            return {
+                "timer_on": {
+                    "hour": self._timer_on_hour,
+                    "minute": self._timer_on_minute,
+                    "days": self._timer_on_days,
+                    "enabled": self._timer_on_enabled,
+                },
+                "timer_off": {
+                    "hour": self._timer_off_hour,
+                    "minute": self._timer_off_minute,
+                    "days": self._timer_off_days,
+                    "enabled": self._timer_off_enabled,
+                },
+            }
+        except Exception as e:
+            LOGGER.warning("%s: Timer query failed: %s", self.name, e)
+            return None
+
+    @retry_bluetooth_connection_error
+    async def query_device_time(self) -> tuple[int, int, int, int] | None:
+        """Query current device time.
+
+        Returns tuple (hour, minute, second, weekday) or None if unavailable.
+        """
+        if not self._client or not self._client.is_connected:
+            await self._ensure_connected()
+
+        # The device time is typically returned after a time sync command
+        # Send a time query and wait for response via notifications
+        if self._device_time:
+            return self._device_time
+        return None
 
     @retry_bluetooth_connection_error
     async def update(self):
