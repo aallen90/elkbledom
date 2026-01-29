@@ -14,7 +14,9 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityFeature,
 )
-from homeassistant.const import CONF_MAC
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry
 from homeassistant.helpers.entity import DeviceInfo
@@ -33,11 +35,16 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_MAC): cv.string
 })
 
-async def async_setup_entry(hass, config_entry, async_add_devices):
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up the light platform."""
     data = hass.data[DOMAIN][config_entry.entry_id]
     instance = data["instance"]
     coordinator = data["coordinator"]
-    async_add_devices([BLEDOMLight(coordinator, instance, config_entry.data["name"], config_entry.entry_id)])
+    async_add_entities([BLEDOMLight(coordinator, instance, config_entry.data["name"], config_entry.entry_id)])
 
 class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEntity):
     def __init__(self, coordinator: BLEDOMCoordinator, bledomInstance: BLEDOMInstance, name: str, entry_id: str) -> None:
@@ -55,11 +62,11 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
         self._attr_has_entity_name = True
 
     @property
-    def available(self):
+    def available(self) -> bool:
         return self._instance.is_on is not None
 
     @property
-    def brightness(self):
+    def brightness(self) -> int | None:
         return self._instance.brightness
 
     @property
@@ -67,35 +74,35 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
         return self._instance.is_on
 
     @property
-    def color_temp_kelvin(self):
+    def color_temp_kelvin(self) -> int | None:
         return self._instance.color_temp_kelvin
 
     @property
-    def max_color_temp_kelvin(self):
+    def max_color_temp_kelvin(self) -> int:
         return self._instance.max_color_temp_kelvin
 
     @property
-    def min_color_temp_kelvin(self):
+    def min_color_temp_kelvin(self) -> int:
         return self._instance.min_color_temp_kelvin
 
     @property
-    def effect_list(self):
+    def effect_list(self) -> list[str]:
         return EFFECTS_list
 
     @property
-    def effect(self):
+    def effect(self) -> str | None:
         """Return current effect."""
         return self._attr_effect
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
         return {
             "effect_speed": self._instance.effect_speed,
         }
 
     @property
-    def rgb_color(self):
+    def rgb_color(self) -> tuple[int, int, int] | None:
         if self._instance.rgb_color:
             return match_max_scale((255,), self._instance.rgb_color)
         return None

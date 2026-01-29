@@ -37,4 +37,3 @@ class BLEDOMCoordinator(DataUpdateCoordinator[None]):
             LOGGER.debug("Error updating %s: %s", self.instance.name, err)
             # Don't raise UpdateFailed for transient BLE errors
             # The device will reconnect on the next command
-            pass

@@ -32,7 +32,6 @@ MANUAL_MAC = "manual"
 
 class BLEDOMFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self) -> None:
         self.mac = None
@@ -189,7 +188,7 @@ class BLEDOMFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 await self._instance.turn_on()
                 await asyncio.sleep(2)
                 await self._instance.turn_off()
-        except (Exception) as error:
+        except Exception as error:
             return error
         finally:
             if self._instance:
