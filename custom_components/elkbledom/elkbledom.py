@@ -5,6 +5,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
@@ -25,6 +26,15 @@ from homeassistant.components.bluetooth import (
 from homeassistant.exceptions import ConfigEntryNotReady
 
 LOGGER = logging.getLogger(__name__)
+
+
+class ConnectionState(Enum):
+    """Connection state machine for BLE device."""
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    READY = "ready"  # Connected and notifications enabled
+    ERROR = "error"
 
 
 @dataclass
@@ -405,6 +415,13 @@ class BLEDOMInstance:
         self._notification_received = False  # Flag to detect responses
         self._bleddm_variant_checked = False  # ELK-BLEDDM variant detection done
 
+        # Connection state tracking
+        self._connection_state = ConnectionState.DISCONNECTED
+        self._connection_attempts = 0
+        self._last_connection_error: str | None = None
+        self._last_successful_connection: datetime | None = None
+        self._firmware_version: str | None = None
+
         # Timer state (from device notifications)
         self._timer_on_hour: int | None = None
         self._timer_on_minute: int | None = None
@@ -672,6 +689,31 @@ class BLEDOMInstance:
     def device_time(self) -> tuple[int, int, int, int] | None:
         """Return device time (hour, minute, second, weekday) if known."""
         return self._device_time
+
+    @property
+    def connection_state(self) -> ConnectionState:
+        """Return current connection state."""
+        return self._connection_state
+
+    @property
+    def connection_diagnostics(self) -> dict:
+        """Return connection diagnostics info."""
+        return {
+            "state": self._connection_state.value,
+            "attempts": self._connection_attempts,
+            "last_error": self._last_connection_error,
+            "last_successful": self._last_successful_connection.isoformat() if self._last_successful_connection else None,
+            "is_connected": self._client.is_connected if self._client else False,
+            "rssi": self.rssi,
+            "address": self._address,
+            "model": self._model,
+            "firmware_version": self._firmware_version,
+        }
+
+    @property
+    def firmware_version(self) -> str | None:
+        """Return firmware version if known."""
+        return self._firmware_version
 
     @retry_bluetooth_connection_error
     async def set_color_temp(self, value: int):
@@ -1124,7 +1166,9 @@ class BLEDOMInstance:
                 self._reset_disconnect_timer()
                 return
 
-            LOGGER.debug("%s: Connecting; RSSI: %s", self.name, self.rssi)
+            self._connection_state = ConnectionState.CONNECTING
+            self._connection_attempts += 1
+            LOGGER.debug("%s: Connecting (attempt %d); RSSI: %s", self.name, self._connection_attempts, self.rssi)
             try:
                 client = await establish_connection(
                         BleakClientWithServiceCache,
@@ -1134,10 +1178,13 @@ class BLEDOMInstance:
                         cached_services=self._cached_services,
                         ble_device_callback=lambda: self._device,
                     )
-            except TimeoutError:
+            except TimeoutError as e:
+                self._connection_state = ConnectionState.ERROR
+                self._last_connection_error = f"Timeout: {e}"
                 LOGGER.error("%s: Connection attempt timed out; RSSI: %s", self.name, self.rssi)
                 return
 
+            self._connection_state = ConnectionState.CONNECTED
             LOGGER.debug("%s: Connected; RSSI: %s", self.name, self.rssi)
 
             resolved = self._resolve_characteristics(client.services)
@@ -1152,6 +1199,8 @@ class BLEDOMInstance:
                 self._cached_services = client.services if resolved else None
 
             if not resolved:
+                self._connection_state = ConnectionState.ERROR
+                self._last_connection_error = "Failed to resolve characteristics"
                 await client.clear_cache()
                 await client.disconnect()
                 raise CharacteristicMissingError(
@@ -1162,8 +1211,11 @@ class BLEDOMInstance:
 
             self._client = client
             self._reset_disconnect_timer()
+            self._last_successful_connection = datetime.now()
+            self._last_connection_error = None
 
             await self._login_command()
+            await self._read_firmware_version()
 
             # Enable notifications (simple method, no manual CCCD)
             try:
@@ -1172,11 +1224,54 @@ class BLEDOMInstance:
                     if self._read_uuid is not None and self._read_uuid != "None":
                         LOGGER.debug("%s: Enabling notifications; RSSI: %s", self.name, self.rssi)
                         await client.start_notify(self._read_uuid, self._notification_handler)
+                        self._connection_state = ConnectionState.READY
                         LOGGER.info("%s: Notifications enabled", self.name)
                     else:
                         LOGGER.warning("%s: Read UUID not resolved (value: %s), skipping notifications", self.name, self._read_uuid)
             except Exception as e:
                 LOGGER.warning("%s: Notifications could not be enabled: %s", self.name, e)
+
+    async def _read_firmware_version(self) -> None:
+        """Try to read firmware version from Device Information Service."""
+        if not self._client or not self._client.is_connected:
+            return
+
+        # Standard Bluetooth SIG UUIDs for Device Information Service
+        FIRMWARE_REVISION_UUID = "00002a26-0000-1000-8000-00805f9b34fb"
+        SOFTWARE_REVISION_UUID = "00002a28-0000-1000-8000-00805f9b34fb"
+        MANUFACTURER_NAME_UUID = "00002a29-0000-1000-8000-00805f9b34fb"
+
+        for uuid in [FIRMWARE_REVISION_UUID, SOFTWARE_REVISION_UUID]:
+            try:
+                data = await self._client.read_gatt_char(uuid)
+                if data:
+                    # Firmware is usually ASCII string
+                    version = bytes(data).decode('utf-8', errors='ignore').strip('\x00')
+                    if version:
+                        self._firmware_version = version
+                        LOGGER.info("%s: Firmware version: %s", self.name, version)
+                        return
+            except Exception:
+                # Characteristic not available, try next
+                pass
+
+        # Also try reading from fff4 as some devices put version there
+        if self._read_uuid:
+            try:
+                data = await self._client.read_gatt_char(self._read_uuid)
+                if data and len(data) >= 3:
+                    # Check if it looks like a version string (ASCII printable)
+                    try:
+                        version = bytes(data).decode('utf-8', errors='ignore').strip('\x00')
+                        if version and all(c.isprintable() or c.isspace() for c in version):
+                            self._firmware_version = version
+                            LOGGER.info("%s: Firmware version (from read char): %s", self.name, version)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        LOGGER.debug("%s: Firmware version not available", self.name)
 
     async def _login_command(self):
         try:
