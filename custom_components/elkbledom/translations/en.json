@@ -45,6 +45,8 @@
               "brightness_mode": "Brightness mode"
             },
             "data_description": {
+              "reset": "Send white color command on turn-on to sync state after IR remote use.",
+              "delay": "How long to wait before disconnecting. Keeps connection alive for faster response. Set to 0 to stay connected.",
               "rgb_gain_r": "Adjust red color balance. Use test_device.py to calibrate.",
               "rgb_gain_g": "Adjust green color balance. Use test_device.py to calibrate.",
               "rgb_gain_b": "Adjust blue color balance. Use test_device.py to calibrate.",
