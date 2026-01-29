@@ -132,6 +132,19 @@ MIC_EFFECTS_list = [MIC_EFFECT_LABELS.get(e, e) for e in [
 # Reverse mapping: mic effect label -> effect name
 MIC_EFFECT_LABEL_TO_NAME = {v: k for k, v in MIC_EFFECT_LABELS.items()}
 
+# RGB Channel Order options
+# Some LED strips have different wiring (GRB instead of RGB, etc.)
+# Command 0x81 sets the channel order: [0x7e, 0x06, 0x81, R_pos, G_pos, B_pos, 0xff, 0x00, 0xef]
+RGB_CHANNEL_ORDERS = {
+    "RGB": (1, 2, 3),
+    "RBG": (1, 3, 2),
+    "GRB": (2, 1, 3),
+    "GBR": (2, 3, 1),
+    "BRG": (3, 1, 2),
+    "BGR": (3, 2, 1),
+}
+RGB_CHANNEL_ORDER_LIST = list(RGB_CHANNEL_ORDERS.keys())
+
 class WEEK_DAYS (Enum):
     monday = 0x01
     tuesday = 0x02

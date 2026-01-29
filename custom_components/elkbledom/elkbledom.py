@@ -795,6 +795,23 @@ class BLEDOMInstance:
                      r_on, g_on, b_on, w_on, rgb_w_bits, mode, state)
 
     @retry_bluetooth_connection_error
+    async def set_rgb_order(self, r_position: int, g_position: int, b_position: int):
+        """Set the RGB channel order for LED strips with non-standard wiring.
+        
+        Args:
+            r_position: Output position for red channel (1, 2, or 3)
+            g_position: Output position for green channel (1, 2, or 3)
+            b_position: Output position for blue channel (1, 2, or 3)
+        """
+        # Validate positions are 1, 2, 3 and unique
+        positions = {r_position, g_position, b_position}
+        if positions != {1, 2, 3}:
+            LOGGER.error("Invalid RGB positions: must use each of 1, 2, 3 exactly once")
+            return
+        await self._write([0x7e, 0x06, 0x81, r_position, g_position, b_position, 0xff, 0x00, 0xef])
+        LOGGER.debug("RGB channel order set: R->%d, G->%d, B->%d", r_position, g_position, b_position)
+
+    @retry_bluetooth_connection_error
     async def set_scheduler_on(self, days: int, hours: int, minutes: int, enabled: bool):
         if enabled:
             value = days + 0x80
