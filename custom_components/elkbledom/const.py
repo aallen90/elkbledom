@@ -68,16 +68,27 @@ EFFECT_LABELS = {
     "blink_red_green_blue_yellow_cyan_magenta_white": "🎇 Blink All",
 }
 
+# Emoji labels for microphone effects
+MIC_EFFECT_LABELS = {
+    "mic_energic": "🎵 Energetic",
+    "mic_rhythm": "🥁 Rhythm",
+    "mic_spectrum": "📊 Spectrum",
+    "mic_rolling": "🌊 Rolling",
+    "mic_classic": "🎶 Classic",
+    "mic_soft": "💫 Soft",
+    "mic_dynamic": "🔊 Dynamic",
+    "mic_disco": "🪩 Disco",
+}
+
 class MIC_EFFECTS (Enum):
-    # Microphone Effects (0x80-0x87)
     mic_energic = 0x80
     mic_rhythm = 0x81
     mic_spectrum = 0x82
     mic_rolling = 0x83
-    mic_effect_4 = 0x84
-    mic_effect_5 = 0x85
-    mic_effect_6 = 0x86
-    mic_effect_7 = 0x87
+    mic_classic = 0x84
+    mic_soft = 0x85
+    mic_dynamic = 0x86
+    mic_disco = 0x87
 
 EFFECTS_list = [EFFECT_LABELS.get(e, e) for e in [
     'jump_red_green_blue',
@@ -107,16 +118,19 @@ EFFECTS_list = [EFFECT_LABELS.get(e, e) for e in [
 # Reverse mapping: emoji label -> effect name
 EFFECT_LABEL_TO_NAME = {v: k for k, v in EFFECT_LABELS.items()}
 
-MIC_EFFECTS_list = [
+MIC_EFFECTS_list = [MIC_EFFECT_LABELS.get(e, e) for e in [
     'mic_energic',
     'mic_rhythm',
     'mic_spectrum',
     'mic_rolling',
-    'mic_effect_4',
-    'mic_effect_5',
-    'mic_effect_6',
-    'mic_effect_7'
-    ]
+    'mic_classic',
+    'mic_soft',
+    'mic_dynamic',
+    'mic_disco',
+]]
+
+# Reverse mapping: mic effect label -> effect name
+MIC_EFFECT_LABEL_TO_NAME = {v: k for k, v in MIC_EFFECT_LABELS.items()}
 
 class WEEK_DAYS (Enum):
     monday = 0x01
