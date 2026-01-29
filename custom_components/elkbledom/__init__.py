@@ -41,6 +41,22 @@ SET_RGBW_CHANNELS_SCHEMA = vol.Schema({
     vol.Optional("mode", default=0): vol.In([0, 1, 2, 3, 4]),  # 0=all, 1=RGB, 2=W, 3=CT, 4=laser
 })
 
+# Service schemas for scheduler control
+SERVICE_SET_SCHEDULE_ON = "set_schedule_on"
+SERVICE_SET_SCHEDULE_OFF = "set_schedule_off"
+SCHEDULE_SCHEMA = vol.Schema({
+    vol.Required("entity_id"): cv.entity_id,
+    vol.Required("time"): cv.time,
+    vol.Optional("monday", default=True): cv.boolean,
+    vol.Optional("tuesday", default=True): cv.boolean,
+    vol.Optional("wednesday", default=True): cv.boolean,
+    vol.Optional("thursday", default=True): cv.boolean,
+    vol.Optional("friday", default=True): cv.boolean,
+    vol.Optional("saturday", default=True): cv.boolean,
+    vol.Optional("sunday", default=True): cv.boolean,
+    vol.Optional("enabled", default=True): cv.boolean,
+})
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up ElkBLEDOM from a config entry."""
     reset = entry.options.get(CONF_RESET, None) or entry.data.get(CONF_RESET, None)
@@ -90,6 +106,65 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_SET_RGBW_CHANNELS,
             async_set_rgbw_channels,
             schema=SET_RGBW_CHANNELS_SCHEMA,
+        )
+
+    # Helper to compute days bitmask from individual day booleans
+    def _compute_days_bitmask(call: ServiceCall) -> int:
+        """Convert individual day booleans to a bitmask."""
+        days = 0
+        if call.data.get("monday", True):
+            days |= 0x01
+        if call.data.get("tuesday", True):
+            days |= 0x02
+        if call.data.get("wednesday", True):
+            days |= 0x04
+        if call.data.get("thursday", True):
+            days |= 0x08
+        if call.data.get("friday", True):
+            days |= 0x10
+        if call.data.get("saturday", True):
+            days |= 0x20
+        if call.data.get("sunday", True):
+            days |= 0x40
+        return days
+
+    # Register scheduler services
+    async def async_set_schedule_on(call: ServiceCall) -> None:
+        """Handle the set_schedule_on service call."""
+        time_val = call.data["time"]
+        hours = time_val.hour
+        minutes = time_val.minute
+        days = _compute_days_bitmask(call)
+        enabled = call.data.get("enabled", True)
+        await instance.set_scheduler_on(days, hours, minutes, enabled)
+        LOGGER.info("Schedule ON set: %02d:%02d days=0x%02x enabled=%s", 
+                    hours, minutes, days, enabled)
+
+    async def async_set_schedule_off(call: ServiceCall) -> None:
+        """Handle the set_schedule_off service call."""
+        time_val = call.data["time"]
+        hours = time_val.hour
+        minutes = time_val.minute
+        days = _compute_days_bitmask(call)
+        enabled = call.data.get("enabled", True)
+        await instance.set_scheduler_off(days, hours, minutes, enabled)
+        LOGGER.info("Schedule OFF set: %02d:%02d days=0x%02x enabled=%s", 
+                    hours, minutes, days, enabled)
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_SCHEDULE_ON):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_SCHEDULE_ON,
+            async_set_schedule_on,
+            schema=SCHEDULE_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_SCHEDULE_OFF):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_SCHEDULE_OFF,
+            async_set_schedule_off,
+            schema=SCHEDULE_SCHEMA,
         )
 
     async def _async_stop(event: Event) -> None:

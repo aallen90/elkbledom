@@ -52,3 +52,137 @@ set_rgbw_channels:
               value: 3
             - label: "Laser (if supported)"
               value: 4
+
+set_schedule_on:
+  name: Set turn-on schedule
+  description: Schedule the light to turn on automatically at a specific time
+  fields:
+    entity_id:
+      name: Entity
+      description: The light entity to schedule
+      required: true
+      selector:
+        entity:
+          integration: elkbledom
+          domain: light
+    time:
+      name: Time
+      description: Time to turn on the light
+      required: true
+      selector:
+        time:
+    monday:
+      name: Monday
+      description: Enable for Monday
+      default: true
+      selector:
+        boolean:
+    tuesday:
+      name: Tuesday
+      description: Enable for Tuesday
+      default: true
+      selector:
+        boolean:
+    wednesday:
+      name: Wednesday
+      description: Enable for Wednesday
+      default: true
+      selector:
+        boolean:
+    thursday:
+      name: Thursday
+      description: Enable for Thursday
+      default: true
+      selector:
+        boolean:
+    friday:
+      name: Friday
+      description: Enable for Friday
+      default: true
+      selector:
+        boolean:
+    saturday:
+      name: Saturday
+      description: Enable for Saturday
+      default: true
+      selector:
+        boolean:
+    sunday:
+      name: Sunday
+      description: Enable for Sunday
+      default: true
+      selector:
+        boolean:
+    enabled:
+      name: Enabled
+      description: Whether the schedule is active
+      default: true
+      selector:
+        boolean:
+
+set_schedule_off:
+  name: Set turn-off schedule
+  description: Schedule the light to turn off automatically at a specific time
+  fields:
+    entity_id:
+      name: Entity
+      description: The light entity to schedule
+      required: true
+      selector:
+        entity:
+          integration: elkbledom
+          domain: light
+    time:
+      name: Time
+      description: Time to turn off the light
+      required: true
+      selector:
+        time:
+    monday:
+      name: Monday
+      description: Enable for Monday
+      default: true
+      selector:
+        boolean:
+    tuesday:
+      name: Tuesday
+      description: Enable for Tuesday
+      default: true
+      selector:
+        boolean:
+    wednesday:
+      name: Wednesday
+      description: Enable for Wednesday
+      default: true
+      selector:
+        boolean:
+    thursday:
+      name: Thursday
+      description: Enable for Thursday
+      default: true
+      selector:
+        boolean:
+    friday:
+      name: Friday
+      description: Enable for Friday
+      default: true
+      selector:
+        boolean:
+    saturday:
+      name: Saturday
+      description: Enable for Saturday
+      default: true
+      selector:
+        boolean:
+    sunday:
+      name: Sunday
+      description: Enable for Sunday
+      default: true
+      selector:
+        boolean:
+    enabled:
+      name: Enabled
+      description: Whether the schedule is active
+      default: true
+      selector:
+        boolean:
