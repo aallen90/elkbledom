@@ -7,7 +7,7 @@ from datetime import timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .elkbledom import BLEDOMInstance
+from .device import BLEDOMInstance
 
 LOGGER = logging.getLogger(__name__)
 

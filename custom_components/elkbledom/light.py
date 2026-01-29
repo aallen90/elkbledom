@@ -17,17 +17,17 @@ from homeassistant.components.light import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_MAC
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.color import match_max_scale
 
 from .const import DOMAIN, EFFECT_LABEL_TO_NAME, EFFECTS, EFFECTS_list
 from .coordinator import BLEDOMCoordinator
-from .elkbledom import BLEDOMInstance
+from .device import BLEDOMInstance
 
 PARALLEL_UPDATES = 0  # fix entity_platform parallel_updates Semaphore
 
@@ -212,8 +212,6 @@ class BLEDOMLight(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, LightEnti
                 self._attr_color_mode = ColorMode.COLOR_TEMP
                 self._attr_effect = None
                 await self._instance.set_color(self._transform_color_brightness((255, 255, 255), 250))
-                if ATTR_WHITE in kwargs:
-                    await self._instance.set_white(kwargs[ATTR_WHITE])
 
         if ATTR_BRIGHTNESS in kwargs and kwargs[ATTR_BRIGHTNESS] != self.brightness and self.rgb_color is not None:
             await self._instance.set_brightness(kwargs[ATTR_BRIGHTNESS])

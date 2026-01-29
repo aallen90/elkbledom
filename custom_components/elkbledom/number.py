@@ -16,7 +16,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import BLEDOMCoordinator
-from .elkbledom import BLEDOMInstance
+from .device import BLEDOMInstance
 
 LOG = logging.getLogger(__name__)
 

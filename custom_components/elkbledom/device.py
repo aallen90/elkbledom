@@ -1,11 +1,14 @@
+"""BLE device communication for ELK-BLEDDM LED controllers.
+
+This module contains the main BLEDOMInstance class for managing
+Bluetooth LE connections and device state.
+"""
 import asyncio
 import json
 import logging
 import traceback
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
@@ -25,272 +28,27 @@ from homeassistant.components.bluetooth import (
 )
 from homeassistant.exceptions import ConfigEntryNotReady
 
+from .const import ConnectionState
+from .models import (
+    MODEL_DB,
+    QUERY_COMMANDS,
+    ModelConfig,
+    get_all_characteristic_uuids,
+    get_supported_name_prefixes,
+)
+from .protocol import build_time_sync_cmd, parse_notification
+
 LOGGER = logging.getLogger(__name__)
 
-
-class ConnectionState(Enum):
-    """Connection state machine for BLE device."""
-    DISCONNECTED = "disconnected"
-    CONNECTING = "connecting"
-    CONNECTED = "connected"
-    READY = "ready"  # Connected and notifications enabled
-    ERROR = "error"
-
-
-@dataclass
-class ModelConfig:
-    """Configuration for a specific LED strip model."""
-    name: str
-    write_uuid: str
-    read_uuid: str
-    turn_on_cmd: list[int]
-    turn_off_cmd: list[int]
-    white_cmd: list[int]
-    effect_speed_cmd: list[int]
-    effect_cmd: list[int]
-    color_temp_cmd: list[int]
-    min_color_temp_k: int = 1800
-    max_color_temp_k: int = 7000
-    # Default RGB gains for better white balance (1.0 = no adjustment)
-    default_rgb_gains: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    # Alternative commands for hardware variants (e.g., ELK-BLEDDM has 0x00 vs 0x04)
-    alt_turn_on_cmd: list[int] | None = None
-    alt_turn_off_cmd: list[int] | None = None
-
-
-# Model database - each model has its own configuration
-MODEL_DB: dict[str, ModelConfig] = {
-    "ELK-BLEDDM": ModelConfig(
-        name="ELK-BLEDDM",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-        default_rgb_gains=(1.00, 0.88, 0.38),
-        # Some ELK-BLEDDM units use 0x00 instead of 0x04 as the second byte
-        alt_turn_on_cmd=[0x7e, 0x00, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        alt_turn_off_cmd=[0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-    ),
-    "ELK-BLE": ModelConfig(
-        name="ELK-BLE",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-    "LEDBLE": ModelConfig(
-        name="LEDBLE",
-        write_uuid="0000ffe1-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000ffe2-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-    "MELK-OG10": ModelConfig(
-        name="MELK-OG10",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x07, 0x04, 0xff, 0x00, 0x01, 0x02, 0x01, 0xef],
-        turn_off_cmd=[0x7e, 0x07, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0xef],
-        white_cmd=[0x7e, 0x07, 0x05, 0x01, 0xbb, 0xff, 0x02, 0x01],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x06, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-    "MELK": ModelConfig(
-        name="MELK",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-    "ELK-BULB2": ModelConfig(
-        name="ELK-BULB2",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-    "ELK-BULB": ModelConfig(
-        name="ELK-BULB",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-    "ELK-LAMPL": ModelConfig(
-        name="ELK-LAMPL",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-    # New devices discovered from Lotus Lantern app analysis
-    "ELK~": ModelConfig(
-        name="ELK~",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-    "ELK_": ModelConfig(
-        name="ELK_",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-    "XSL-": ModelConfig(
-        name="XSL-",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-    "LED LIGHT STRIP": ModelConfig(
-        name="LED LIGHT STRIP",
-        write_uuid="0000fff3-0000-1000-8000-00805f9b34fb",
-        read_uuid="0000fff4-0000-1000-8000-00805f9b34fb",
-        turn_on_cmd=[0x7e, 0x04, 0x04, 0x01, 0x00, 0x01, 0xff, 0x00, 0xef],
-        turn_off_cmd=[0x7e, 0x04, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef],
-        white_cmd=[0x7e, 0x00, 0x01, 0xbb, 0x00, 0x00, 0x00, 0x00, 0xef],
-        effect_speed_cmd=[0x7e, 0x04, 0x02, 0xbb, 0xff, 0xff, 0xff, 0x00, 0xef],
-        effect_cmd=[0x7e, 0x05, 0x03, 0xbb, 0x03, 0xff, 0xff, 0x00, 0xef],
-        color_temp_cmd=[0x7e, 0x06, 0x05, 0x02, 0xbb, 0xbb, 0xff, 0x08, 0xef],
-    ),
-}
-
-
-def get_supported_name_prefixes() -> list[str]:
-    """Get list of supported device name prefixes."""
-    return list(MODEL_DB.keys())
-
-
-def get_all_characteristic_uuids() -> tuple[set[str], set[str]]:
-    """Get unique read and write characteristic UUIDs from all models.
-
-    Returns:
-        Tuple of (read_uuids, write_uuids) as sets.
-    """
-    read_uuids = {m.read_uuid for m in MODEL_DB.values()}
-    write_uuids = {m.write_uuid for m in MODEL_DB.values()}
-    return read_uuids, write_uuids
-
-# Query/Status commands to try for different LED strip models
-# Format: [command_bytes, description]
-QUERY_COMMANDS = [
-    # Standard ELK-BLEDOM commands
-    ([0x7e, 0x00, 0x01, 0xfa, 0x00, 0x00, 0x00, 0x00, 0xef], "Standard status query"),
-    ([0x7e, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Alternative query v1"),
-    ([0x7e, 0x00, 0x81, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Status query 0x81"),
-    ([0x7e, 0x00, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Status query 0x82"),
-    ([0x7e, 0x00, 0x83, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Status query 0x83"),
-
-    # Short format commands
-    ([0xef, 0x01, 0x77], "Short query v1"),
-    ([0x7e, 0x00, 0x10], "Short query v2"),
-    ([0x7e, 0x10], "Minimal query"),
-    ([0x25, 0x00], "Minimal query 2"),
-    ([0x25, 0x02], "Minimal query 3"),
-
-    # MELK specific commands
-    ([0x7e, 0x04, 0x01, 0x00, 0xff, 0x00, 0xff, 0x00, 0xef], "MELK status query"),
-    ([0x7e, 0x07, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0xef], "MELK query v2"),
-
-    # Alternative long format
-    ([0x7e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Get all status"),
-    ([0x7e, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Status cmd 0x01"),
-    ([0x7e, 0x04, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef], "Power status query"),
-
-    # LEDBLE specific
-    ([0x7e, 0x00, 0x04, 0xfa, 0x00, 0x00, 0x00, 0x00, 0xef], "LEDBLE status"),
-    ([0xcc, 0x23, 0x33], "LEDBLE short status"),
-
-    # Other variants found in wild
-    ([0xaa, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55], "Variant header 0xaa"),
-    ([0x7e, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x05"),
-
-    # ========== 30 COMANDOS ADICIONALES ==========
-
-    # Variantes 0x7e con diferentes bytes de comando (0x02-0x0f)
-    ([0x7e, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x02"),
-    ([0x7e, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x03"),
-    ([0x7e, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x06"),
-    ([0x7e, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x07"),
-    ([0x7e, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x08"),
-    ([0x7e, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x09"),
-    ([0x7e, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x0a"),
-    ([0x7e, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x0b"),
-    ([0x7e, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x0c"),
-    ([0x7e, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query cmd 0x0d"),
-
-    # Comandos con segundo byte variable (prefijo alternativo)
-    ([0x7e, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x01"),
-    ([0x7e, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x02"),
-    ([0x7e, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x03"),
-    ([0x7e, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x05"),
-    ([0x7e, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x06"),
-    ([0x7e, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x08"),
-    ([0x7e, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef], "Query prefix 0x09"),
-
-    # Comandos cortos con diferentes protocolos
-    ([0xef, 0x01], "Minimal EF query"),
-    ([0xef, 0x77], "EF query 0x77"),
-    ([0xef, 0x00], "EF query 0x00"),
-    ([0x10, 0x00], "Query 0x10 0x00"),
-    ([0x10, 0x01], "Query 0x10 0x01"),
-    ([0xaa, 0x00], "AA protocol query"),
-    ([0xbb, 0x00, 0x00], "BB protocol query"),
-
-    # Comandos tipo checksum/CRC diferentes
-    ([0x7e, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff], "Query end 0xff"),
-    ([0x7e, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfe], "Query end 0xfe"),
-    ([0x7e, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xee], "Query end 0xee"),
-
-    # Comandos tipo "ping" o "hello"
-    ([0xff, 0x00, 0x00], "Ping command"),
-    ([0x00, 0x00, 0x00], "Null query"),
-    ([0x01], "Single byte query"),
-    ([0xff], "Single 0xFF query"),
+# Re-export for backward compatibility
+__all__ = [
+    "BLEDOMInstance",
+    "DeviceData",
+    "CharacteristicMissingError",
+    "MODEL_DB",
+    "ModelConfig",
+    "get_supported_name_prefixes",
+    "get_all_characteristic_uuids",
 ]
 
 DEFAULT_ATTEMPTS = 3
@@ -886,16 +644,16 @@ class BLEDOMInstance:
     @retry_bluetooth_connection_error
     async def set_rgbw_channels(self, r_on: bool = True, g_on: bool = True, b_on: bool = True, w_on: bool = True, mode: int = 0):
         """Set individual RGBW channel states.
-        
+
         Args:
             r_on: Red channel enabled (controls RGB LEDs as a group)
             g_on: Green channel enabled (not directly in bitmask, affects state in some modes)
             b_on: Blue channel enabled (not directly in bitmask, affects state in some modes)
             w_on: White channel enabled
             mode: Light mode (0=all, 1=RGB, 2=W, 3=CT, 4=laser)
-        
+
         Command format: [0x7e, length, cmd_type=0x04, rgb_w_bits, mode, state, 0xff, checksum, 0xef]
-        
+
         Bitmask structure (discovered via protocol analysis):
         - rgb_w_bits: bit4=W (0x10), bits5-7=R controls RGB group (0xE0)
         - state: Depends on mode - generally 1 if on, 0 if off
@@ -906,7 +664,7 @@ class BLEDOMInstance:
             rgb_w_bits |= 0xE0  # bits 5-7 (224 decimal) - R controls RGB group
         if w_on:
             rgb_w_bits |= 0x10  # bit 4 (16 decimal) - W channel
-        
+
         # State depends on mode
         if mode == 0 or mode == 1:  # ALL or RGB mode
             state = 0x01 if r_on else 0x00
@@ -916,7 +674,7 @@ class BLEDOMInstance:
             state = 0x01 if g_on else 0x00  # G controls state in these modes
         else:
             state = 0x01 if (r_on or g_on or b_on or w_on) else 0x00
-        
+
         await self._write([0x7e, 0x04, 0x04, rgb_w_bits, mode, state, 0xff, 0x00, 0xef])
         LOGGER.debug("RGBW channels set: R=%s G=%s B=%s W=%s (bitmask=0x%02x, mode=%d, state=%d)",
                      r_on, g_on, b_on, w_on, rgb_w_bits, mode, state)
@@ -924,7 +682,7 @@ class BLEDOMInstance:
     @retry_bluetooth_connection_error
     async def set_rgb_order(self, r_position: int, g_position: int, b_position: int):
         """Set the RGB channel order for LED strips with non-standard wiring.
-        
+
         Args:
             r_position: Output position for red channel (1, 2, or 3)
             g_position: Output position for green channel (1, 2, or 3)
@@ -957,12 +715,13 @@ class BLEDOMInstance:
     @retry_bluetooth_connection_error
     async def sync_time(self):
         now = datetime.now()
-        day_of_week = now.isoweekday()
-        await self._write([0x7e, 0x00, 0x83, int(now.strftime('%H')), int(now.strftime('%M')), int(now.strftime('%S')), day_of_week, 0x00, 0xef])
+        cmd = build_time_sync_cmd(now.hour, now.minute, now.second, now.isoweekday())
+        await self._write(cmd)
 
     @retry_bluetooth_connection_error
     async def custom_time(self, hour: int, minute: int, second: int, day_of_week: int):
-        await self._write([0x7e, 0x00, 0x83, hour, minute, second, day_of_week, 0x00, 0xef])
+        cmd = build_time_sync_cmd(hour, minute, second, day_of_week)
+        await self._write(cmd)
 
     def _get_query_cache_file(self) -> Path:
         """Get path to query command cache file."""
@@ -1239,7 +998,7 @@ class BLEDOMInstance:
         # Standard Bluetooth SIG UUIDs for Device Information Service
         FIRMWARE_REVISION_UUID = "00002a26-0000-1000-8000-00805f9b34fb"
         SOFTWARE_REVISION_UUID = "00002a28-0000-1000-8000-00805f9b34fb"
-        MANUFACTURER_NAME_UUID = "00002a29-0000-1000-8000-00805f9b34fb"
+        # MANUFACTURER_NAME_UUID = "00002a29-0000-1000-8000-00805f9b34fb" (available if needed)
 
         for uuid in [FIRMWARE_REVISION_UUID, SOFTWARE_REVISION_UUID]:
             try:
@@ -1312,88 +1071,46 @@ class BLEDOMInstance:
         self._notification_received = True  # Mark that we got a response
         LOGGER.info("%s: ✓ Notification received (%d bytes): %s", self.name, len(data), ' '.join(f'{x:02x}' for x in data))
 
-        # Validate minimum packet structure
-        if len(data) < 3 or data[0] != 0x7e:
+        # Use protocol parser
+        parsed = parse_notification(data)
+        if parsed is None:
             return
 
-        cmd_type = data[2]
-
-        # Timer response (0x85) - contains both on and off schedules
-        # Format: 7e 09 85 H1 M1 W1 H2 M2 W2
-        # W1/W2: bit0-6 = days (Mon-Sun), bit7 = enabled
-        if cmd_type == 0x85 and len(data) >= 9:
-            self._timer_on_hour = data[3]
-            self._timer_on_minute = data[4]
-            self._timer_on_days = data[5] & 0x7f  # Lower 7 bits = day mask
-            self._timer_on_enabled = bool(data[5] & 0x80)  # Bit 7 = enabled
-            self._timer_off_hour = data[6]
-            self._timer_off_minute = data[7]
-            self._timer_off_days = data[8] & 0x7f
-            self._timer_off_enabled = bool(data[8] & 0x80)
-            LOGGER.info("%s: Timer ON: %02d:%02d days=0x%02x enabled=%s | OFF: %02d:%02d days=0x%02x enabled=%s",
+        # Update state from parsed data
+        if parsed.timer_on_hour is not None:
+            self._timer_on_hour = parsed.timer_on_hour
+            self._timer_on_minute = parsed.timer_on_minute
+            self._timer_on_days = parsed.timer_on_days
+            self._timer_on_enabled = parsed.timer_on_enabled
+            LOGGER.info("%s: Timer ON: %02d:%02d days=0x%02x enabled=%s",
                         self.name,
-                        self._timer_on_hour, self._timer_on_minute, self._timer_on_days, self._timer_on_enabled,
+                        self._timer_on_hour, self._timer_on_minute, self._timer_on_days, self._timer_on_enabled)
+
+        if parsed.timer_off_hour is not None:
+            self._timer_off_hour = parsed.timer_off_hour
+            self._timer_off_minute = parsed.timer_off_minute
+            self._timer_off_days = parsed.timer_off_days
+            self._timer_off_enabled = parsed.timer_off_enabled
+            LOGGER.info("%s: Timer OFF: %02d:%02d days=0x%02x enabled=%s",
+                        self.name,
                         self._timer_off_hour, self._timer_off_minute, self._timer_off_days, self._timer_off_enabled)
-            return
 
-        # Timer status response (0x82) - single timer confirmation
-        # Format: 7e 08 82 H M S mode days ef
-        if cmd_type == 0x82 and len(data) >= 9 and data[8] == 0xef:
-            hour, minute, second = data[3], data[4], data[5]
-            mode = data[6]  # 0 = on timer, 1 = off timer
-            days_enabled = data[7]
-            days = days_enabled & 0x7f
-            enabled = bool(days_enabled & 0x80)
-            if mode == 0:
-                self._timer_on_hour = hour
-                self._timer_on_minute = minute
-                self._timer_on_days = days
-                self._timer_on_enabled = enabled
-                LOGGER.info("%s: Timer ON confirmed: %02d:%02d:%02d days=0x%02x enabled=%s",
-                            self.name, hour, minute, second, days, enabled)
-            else:
-                self._timer_off_hour = hour
-                self._timer_off_minute = minute
-                self._timer_off_days = days
-                self._timer_off_enabled = enabled
-                LOGGER.info("%s: Timer OFF confirmed: %02d:%02d:%02d days=0x%02x enabled=%s",
-                            self.name, hour, minute, second, days, enabled)
-            return
-
-        # Time sync response (0x83) - device time confirmation
-        # Format: 7e 07 83 H M S wd ff ef
-        if cmd_type == 0x83 and len(data) >= 9:
-            hour, minute, second, weekday = data[3], data[4], data[5], data[6]
-            self._device_time = (hour, minute, second, weekday)
+        if parsed.device_time is not None:
+            self._device_time = parsed.device_time
             LOGGER.info("%s: Device time: %02d:%02d:%02d weekday=%d",
-                        self.name, hour, minute, second, weekday)
-            return
+                        self.name, *parsed.device_time)
 
-        # Parse standard 9-byte response packet
-        if len(data) >= 9 and data[8] == 0xef:
-            # Status response (0x01)
-            if cmd_type == 0x01:
-                # Power state might be in data[3]
-                power_state = data[3]
-                if power_state in [0x23, 0xf0, 0x01]:
-                    self._is_on = True
-                    LOGGER.debug("%s: Parsed power state: ON", self.name)
-                elif power_state in [0x24, 0x00]:
-                    self._is_on = False
-                    LOGGER.debug("%s: Parsed power state: OFF", self.name)
+        if parsed.is_on is not None:
+            self._is_on = parsed.is_on
+            LOGGER.debug("%s: Parsed power state: %s", self.name, "ON" if self._is_on else "OFF")
 
-                # Try to parse RGB color if available
-                if len(data) >= 8:
-                    r, g, b = data[4], data[5], data[6]
-                    if r != 0xff or g != 0xff or b != 0xff:  # Not default/invalid values
-                        self._rgb_color = (r, g, b)
-                        LOGGER.debug("%s: Parsed RGB color: (%d, %d, %d)", self.name, r, g, b)
+        if parsed.rgb_color is not None:
+            self._rgb_color = parsed.rgb_color
+            LOGGER.debug("%s: Parsed RGB color: %s", self.name, parsed.rgb_color)
 
-                # Brightness might be in data[7]
-                if len(data) >= 8 and data[7] != 0xff:
-                    brightness_percent = data[7]
-                    self._brightness = int(brightness_percent * 255 / 100)
-                    LOGGER.debug("%s: Parsed brightness: %d%%", self.name, brightness_percent)
+        if parsed.brightness is not None:
+            self._brightness = parsed.brightness
+            LOGGER.debug("%s: Parsed brightness: %d", self.name, parsed.brightness)
 
         return
 

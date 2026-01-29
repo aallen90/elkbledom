@@ -11,9 +11,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MIC_EFFECTS, MIC_EFFECTS_list, RGB_CHANNEL_ORDERS, RGB_CHANNEL_ORDER_LIST
+from .const import DOMAIN, MIC_EFFECTS, RGB_CHANNEL_ORDER_LIST, RGB_CHANNEL_ORDERS, MIC_EFFECTS_list
 from .coordinator import BLEDOMCoordinator
-from .elkbledom import BLEDOMInstance
+from .device import BLEDOMInstance
 
 LOG = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ class BLEDOMMicEffect(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, Selec
 
 class BLEDOMRGBOrder(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, SelectEntity):
     """RGB Channel Order selector entity.
-    
+
     Some LED strips have non-standard wiring (e.g., GRB instead of RGB).
     This control allows adjusting the output channel order.
     """

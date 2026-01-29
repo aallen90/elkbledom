@@ -15,6 +15,16 @@ CONF_BRIGHTNESS_MODE = "brightness_mode"
 BRIGHTNESS_MODES = ["auto", "rgb", "native"]
 DEFAULT_BRIGHTNESS_MODE = "auto"
 
+
+class ConnectionState(Enum):
+    """Connection state machine for BLE device."""
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    READY = "ready"  # Connected and notifications enabled
+    ERROR = "error"
+
+
 class EFFECTS (Enum):
     # Light Effects (0x87-0x9C)
     jump_red_green_blue = 0x87

@@ -23,7 +23,7 @@ from .const import (
     CONF_RGB_GAIN_R,
     DOMAIN,
 )
-from .elkbledom import BLEDOMInstance, DeviceData
+from .device import BLEDOMInstance, DeviceData
 
 LOGGER = logging.getLogger(__name__)
 DATA_SCHEMA = vol.Schema({("host"): str})

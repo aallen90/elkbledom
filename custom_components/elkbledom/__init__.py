@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 
+import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_MAC, EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant, ServiceCall
-import homeassistant.helpers.config_validation as cv
 
 from .const import (
     CONF_BRIGHTNESS_MODE,
@@ -18,7 +18,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import BLEDOMCoordinator
-from .elkbledom import BLEDOMInstance
+from .device import BLEDOMInstance
 
 LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
@@ -92,17 +92,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register RGBW service
     async def async_set_rgbw_channels(call: ServiceCall) -> None:
         """Handle the set_rgbw_channels service call."""
-        entity_id = call.data["entity_id"]
+        # Note: entity_id is in call.data but we use the instance from this entry
         red = call.data.get("red", True)
         green = call.data.get("green", True)
         blue = call.data.get("blue", True)
         white = call.data.get("white", True)
         mode = int(call.data.get("mode", "0"))
-        
+
         # Get the instance from entity_id
         # For simplicity, use the instance from this entry
         await instance.set_rgbw_channels(red, green, blue, white, mode)
-        LOGGER.info("RGBW channels service called: R=%s G=%s B=%s W=%s mode=%d", 
+        LOGGER.info("RGBW channels service called: R=%s G=%s B=%s W=%s mode=%d",
                     red, green, blue, white, mode)
 
     # Register service only once globally
@@ -143,7 +143,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         days = _compute_days_bitmask(call)
         enabled = call.data.get("enabled", True)
         await instance.set_scheduler_on(days, hours, minutes, enabled)
-        LOGGER.info("Schedule ON set: %02d:%02d days=0x%02x enabled=%s", 
+        LOGGER.info("Schedule ON set: %02d:%02d days=0x%02x enabled=%s",
                     hours, minutes, days, enabled)
 
     async def async_set_schedule_off(call: ServiceCall) -> None:
@@ -154,7 +154,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         days = _compute_days_bitmask(call)
         enabled = call.data.get("enabled", True)
         await instance.set_scheduler_off(days, hours, minutes, enabled)
-        LOGGER.info("Schedule OFF set: %02d:%02d days=0x%02x enabled=%s", 
+        LOGGER.info("Schedule OFF set: %02d:%02d days=0x%02x enabled=%s",
                     hours, minutes, days, enabled)
 
     if not hass.services.has_service(DOMAIN, SERVICE_SET_SCHEDULE_ON):
@@ -178,7 +178,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Handle the query_timer service call."""
         result = await instance.query_timer()
         if result:
-            LOGGER.info("Timer query result: ON=%s OFF=%s", 
+            LOGGER.info("Timer query result: ON=%s OFF=%s",
                         result.get("timer_on"), result.get("timer_off"))
         else:
             LOGGER.warning("Timer query returned no data")
