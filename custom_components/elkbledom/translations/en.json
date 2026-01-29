@@ -6,14 +6,14 @@
                     "mac": "Bluetooth MAC address",
                     "name": "Name"
                 },
-                "title": "Pick a Elkbledom light. Make sure light in sight for validation."
+                "title": "Select an ELK-BLEDDM light. Make sure light is in sight for validation."
             },
             "validate": {
                 "data": {
                     "retry": "Retry validate connection?",
                     "flicker": "Did the light blink?"
                 },
-                "title": "Validate Elkbledom connection"
+                "title": "Validate ELK-BLEDDM connection"
             },
             "manual": {
                 "data": {
@@ -24,12 +24,12 @@
             }
         },
         "error": {
-            "connect": "Unable to connect to Elkbledom"
+            "connect": "Unable to connect to ELK-BLEDDM"
         },
         "abort": {
-            "cannot_validate": "Unable to validate Elkbledom light",
-            "cannot_connect": "Unable to connect to Elkbledom",
-            "not_supported": "Elkbledom light not supported",
+            "cannot_validate": "Unable to validate ELK-BLEDDM light",
+            "cannot_connect": "Unable to connect to ELK-BLEDDM",
+            "not_supported": "ELK-BLEDDM light not supported",
             "invalid_discovery_info": "Invalid discovery info in bluetooth device"
         }
     },
@@ -88,5 +88,5 @@
             }
         }
     },
-    "title": "Elkbledom"
+    "title": "ELK-BLEDDM"
 }

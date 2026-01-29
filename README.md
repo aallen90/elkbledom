@@ -1,34 +1,37 @@
-# elkbledom HA Integration
+# ELK-BLEDDM Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-Home Assistant integration for LED STRIP or LED Desktop light (lightbar) NAME ELK BLEDOM with android/iphone mobile app duoCo Strip (https://play.google.com/store/apps/details?id=shy.smartled&hl=es&gl=US) or mobile app Lantern Lotus (https://play.google.com/store/apps/details?id=wl.smartled&hl=es&gl=US) or mobile app Lotus Lamp X (https://play.google.com/store/apps/details?id=com.szelk.ledlamppro).
+Home Assistant integration for **ELK-BLEDDM** Bluetooth LED controllers (LED strips, bulbs, desk lamps). Also compatible with other ELK-* variants.
 
-> **Note:** This is a fork of [dave-code-ruiz/elkbledom](https://github.com/dave-code-ruiz/elkbledom) with additional features and improvements. Some features (emoji effect labels, color temperature emulation) were inspired by [Satimaro/elkbledom-fastlink](https://github.com/Satimaro/elkbledom-fastlink).
+> **Note:** This is a fork of [dave-code-ruiz/elkbledom](https://github.com/dave-code-ruiz/elkbledom) focused on the ELK-BLEDDM device with additional features and improvements. Some features (emoji effect labels, color temperature emulation) were inspired by [Satimaro/elkbledom-fastlink](https://github.com/Satimaro/elkbledom-fastlink).
 
 ## Supported Devices
 
 | Device Name | Status | Notes |
 |-------------|--------|-------|
-| ELK-BLE* | ✅ Supported | Original LED strips |
-| ELK-BLEDOM | ✅ Supported | Standard variant (0x04 command byte) |
-| **ELK-BLEDDM** | ✅ Supported | Alternate variant (0x00 command byte) - auto-detected |
-| ELK-BULB* | ✅ Supported | LED bulbs |
-| ELK-LAMPL* | ✅ Supported | Works with Lotus Lamp X app |
-| MELK* | ✅ Supported | Requires init commands (see below) |
-| LEDBLE* | ✅ Supported | Generic LED strips |
+| **ELK-BLEDDM** | ✅ Primary | Main supported device - auto-detects command byte variant |
+| ELK-BLE* | ✅ Compatible | Original LED strips |
+| ELK-BLEDOM | ✅ Compatible | Standard variant (0x04 command byte) |
+| ELK-BULB* | ✅ Compatible | LED bulbs |
+| ELK-LAMPL* | ✅ Compatible | Works with Lotus Lamp X app |
+| MELK* | ✅ Compatible | Requires init commands (see below) |
+| LEDBLE* | ✅ Compatible | Generic LED strips |
 
-## Fork Enhancements (v1.6.0+)
+## Fork Features
 
 This fork adds several improvements over the original:
 
 - **ELK-BLEDDM variant support** - Automatic detection of 0x00 vs 0x04 command byte variants
 - **RGB color calibration** - Configurable per-channel gains (r/g/b) for white balance
+- **RGB channel order** - Remap channels for strips with non-standard wiring (RGB/GRB/etc.)
+- **Scheduler services** - Program the device's built-in timer via `set_schedule_on`/`set_schedule_off`
 - **Sync Time button** - Synchronize device time with Home Assistant
 - **RSSI sensor** - Monitor Bluetooth signal strength (disabled by default)
 - **Emoji effect labels** - Visual effect names (🌈 Smooth Cycle, ⚡ Jump RGB, etc.)
 - **Brightness mode option** - Choose between auto, RGB, or native brightness control
 - **Color temperature emulation** - RGB-based color temp (1800K-7000K) for devices without native CCT
+- **Diagnostics support** - Debug dumps for troubleshooting
 - **CoordinatorEntity pattern** - Modern HA architecture with centralized polling
 - **HA best practices** - Proper entity naming, categories, and icon translations
 
@@ -134,7 +137,7 @@ Since this is a fork, you need to add it as a custom repository:
 1. Open HACS in Home Assistant
 2. Click the three dots menu → **Custom repositories**
 3. Add `https://github.com/aallen90/elkbledom` with category **Integration**
-4. Search for "ElkBLEDOM" and install
+4. Search for "ELK-BLEDDM" and install
 5. Restart Home Assistant
 
 ### Manual installation
@@ -143,7 +146,7 @@ You can manually clone this repository inside `config/custom_components/` HA fol
 
 ## Setup
 
-After installation, you should find elkbledom under the Settings -> Integrations -> Add integration -> search elkbledom integration -> follow instructions.
+After installation, find ELK-BLEDDM under Settings → Integrations → Add integration → search "ELK-BLEDDM" → follow instructions.
 
 The setup step includes discovery which will list out all ELK BLEDOM lights discovered. The setup will validate connection by toggling the selected light. Make sure your light is in-sight to validate this.
 
@@ -164,7 +167,7 @@ after that, try to restart strip, add your strip to homeassistant and i think yo
 
 ## Config
 
-After Setup, you can configure elkbledom params under Settings → Integrations → ElkBLEDOM → Configure.
+After Setup, you can configure device options under Settings → Integrations → ELK-BLEDDM → Configure.
 
 #### Reset color when LED turns on
 
