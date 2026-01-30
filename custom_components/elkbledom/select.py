@@ -11,7 +11,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MIC_EFFECTS, RGB_CHANNEL_ORDER_LIST, RGB_CHANNEL_ORDERS, MIC_EFFECTS_list
+from .const import (
+    DOMAIN,
+    MIC_EFFECT_LABEL_TO_NAME,
+    MIC_EFFECTS,
+    RGB_CHANNEL_ORDER_LIST,
+    RGB_CHANNEL_ORDERS,
+    MIC_EFFECTS_list,
+)
 from .coordinator import BLEDOMCoordinator
 from .device import BLEDOMInstance
 
@@ -68,7 +75,9 @@ class BLEDOMMicEffect(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, Selec
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         if option in MIC_EFFECTS_list:
-            effect_value = MIC_EFFECTS[option].value
+            # Convert emoji label back to effect name if needed
+            effect_name = MIC_EFFECT_LABEL_TO_NAME.get(option, option)
+            effect_value = MIC_EFFECTS[effect_name].value
             await self._instance.set_mic_effect(effect_value)
             self._current_option = option
             LOG.debug(f"Mic effect set to {option} (0x{effect_value:02x})")
