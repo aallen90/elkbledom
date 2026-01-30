@@ -77,10 +77,13 @@ class BLEDOMMicEffect(CoordinatorEntity[BLEDOMCoordinator], RestoreEntity, Selec
         if option in MIC_EFFECTS_list:
             # Convert emoji label back to effect name if needed
             effect_name = MIC_EFFECT_LABEL_TO_NAME.get(option, option)
-            effect_value = MIC_EFFECTS[effect_name].value
-            await self._instance.set_mic_effect(effect_value)
-            self._current_option = option
-            LOG.debug(f"Mic effect set to {option} (0x{effect_value:02x})")
+            if effect_name in MIC_EFFECTS.__members__:
+                effect_value = MIC_EFFECTS[effect_name].value
+                await self._instance.set_mic_effect(effect_value)
+                self._current_option = option
+                LOG.debug(f"Mic effect set to {option} (0x{effect_value:02x})")
+            else:
+                LOG.error(f"Unknown mic effect name: {effect_name} (from label: {option})")
 
     async def async_added_to_hass(self) -> None:
         """Restore previous state when entity is added to hass."""
